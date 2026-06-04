@@ -6,13 +6,13 @@ const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
 const DEFAULT_HABITS = [
-  { id: 1, label: "45 min workout", icon: "🏋️‍♀️" },
-  { id: 2, label: "Read 10 pages", icon: "📖" },
-  { id: 3, label: "No alcohol", icon: "🚫🍷" },
-  { id: 4, label: "Drink 1 gallon water", icon: "💧" },
-  { id: 5, label: "Follow my diet", icon: "🥗" },
-  { id: 6, label: "Cold shower", icon: "🧊" },
-  { id: 7, label: "Skincare routine", icon: "✨" },
+  { id: 1, label: "45 min workout", icon: "🏋️‍♀️", daysPerWeek: 7 },
+  { id: 2, label: "Read 10 pages", icon: "📖", daysPerWeek: 7 },
+  { id: 3, label: "No alcohol", icon: "🚫🍷", daysPerWeek: 7 },
+  { id: 4, label: "Drink 1 gallon water", icon: "💧", daysPerWeek: 7 },
+  { id: 5, label: "Follow my diet", icon: "🥗", daysPerWeek: 7 },
+  { id: 6, label: "Cold shower", icon: "🧊", daysPerWeek: 7 },
+  { id: 7, label: "Skincare routine", icon: "✨", daysPerWeek: 7 },
 ];
 
 const DEFAULT_MISSION = "I am becoming the most disciplined, powerful version of myself. Every single day I choose growth over comfort, clarity over chaos, and strength over excuses. This is my era. 💫";
@@ -65,7 +65,7 @@ function getInitialDay(habits){return{habits:habits.reduce((a,h)=>({...a,[h.id]:
 function fileToBase64(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file);});}
 function checkBingoRows(card){const rows=[];for(let r=0;r<5;r++){if(card.slice(r*5,(r+1)*5).every(c=>c.done))rows.push(r);}return rows;}
 
-// ── STABLE CHILD COMPONENTS (defined outside App to prevent re-mount on each keystroke) ──
+// ── STABLE CHILD COMPONENTS (ALL defined outside App to prevent re-mount on keystroke) ──
 
 const ColorPicker = memo(({ label, hint, value, onChange, c }) => {
   const[h,sat,l]=hexToHsl(value);
@@ -224,10 +224,9 @@ const VisionBoard = memo(({ wishlist, setWishlistS, c, s, grad }) => {
   const [resizing, setResizing] = useState(null);
   const [selected, setSelected] = useState(null);
   const [newText, setNewText] = useState("");
-  const [editingText, setEditingText] = useState(null);
-  const [editTextVal, setEditTextVal] = useState("");
   const boardRef = useRef(null);
   const dragOffset = useRef({x:0,y:0});
+  const activePointerId = useRef(null);
 
   function saveItems(updated){
     setItems(updated);
@@ -271,7 +270,8 @@ const VisionBoard = memo(({ wishlist, setWishlistS, c, s, grad }) => {
       setItems(prev=>prev.map(i=>i.id===dragging?{...i,x:Math.max(0,pos.x-dragOffset.current.x),y:Math.max(0,pos.y-dragOffset.current.y)}:i));
     }
     if(resizing){
-      setItems(prev=>prev.map(i=>i.id===resizing.id?{...i,width:Math.max(60,resizing.startW+(pos.x-resizing.startX))}:i));
+      const newW=Math.max(60,resizing.startW+(pos.x-resizing.startX));
+      setItems(prev=>prev.map(i=>i.id===resizing.id?{...i,width:newW}:i));
     }
   }
 
@@ -283,9 +283,14 @@ const VisionBoard = memo(({ wishlist, setWishlistS, c, s, grad }) => {
     setDragging(null);setResizing(null);
   }
 
-  function startResize(e,id){
-    e.preventDefault();e.stopPropagation();
-    setResizing({id,startX:getEventPos(e).x,startW:items.find(i=>i.id===id).width});
+  // FIX: resize uses its own pointer down, completely separate from drag
+  function startResize(e, id){
+    e.preventDefault();
+    e.stopPropagation();
+    const pos=getEventPos(e);
+    const item=items.find(i=>i.id===id);
+    setResizing({id, startX:pos.x, startW:item.width});
+    setDragging(null); // make sure drag doesn't interfere
   }
 
   function deleteItem(id){saveItems(items.filter(i=>i.id!==id));setSelected(null);}
@@ -312,7 +317,7 @@ const VisionBoard = memo(({ wishlist, setWishlistS, c, s, grad }) => {
           <span style={{fontSize:12,color:c.muted}}>📷 Add image to board</span>
           <input type="file" accept="image/*" onChange={addImage} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%"}}/>
         </div>
-        <div style={{fontSize:10,color:c.muted,marginTop:8,textAlign:"center"}}>Drag to move • Pull corner to resize • Tap to select</div>
+        <div style={{fontSize:10,color:c.muted,marginTop:8,textAlign:"center"}}>Drag to move • Pull corner ↘ to resize • Tap to select</div>
       </div>
 
       {/* Selected item controls */}
@@ -340,9 +345,9 @@ const VisionBoard = memo(({ wishlist, setWishlistS, c, s, grad }) => {
 
       {/* Freeform canvas */}
       <div ref={boardRef}
-        style={{position:"relative",width:"100%",minHeight:500,background:`linear-gradient(145deg,${c.card},${c.cardAlt})`,border:`1px solid ${c.border}`,borderRadius:16,overflow:"hidden",touchAction:"none"}}
+        style={{position:"relative",width:"100%",minHeight:500,background:`linear-gradient(145deg,${c.card},${c.cardAlt})`,border:`1px solid ${c.border}`,borderRadius:16,overflow:"hidden",touchAction:"none",userSelect:"none"}}
         onMouseMove={onMove} onMouseUp={endMove} onTouchMove={onMove} onTouchEnd={endMove}
-        onClick={()=>setSelected(null)}>
+        onClick={()=>{if(!dragging&&!resizing)setSelected(null);}}>
         {items.length===0&&(
           <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:8,color:c.muted}}>
             <div style={{fontSize:32}}>🎯</div>
@@ -353,12 +358,14 @@ const VisionBoard = memo(({ wishlist, setWishlistS, c, s, grad }) => {
           <div key={item.id}
             style={{position:"absolute",left:item.x,top:item.y,width:item.width,
               border:selected===item.id?`2px solid ${c.pink}`:"2px solid transparent",
-              borderRadius:10,userSelect:"none",cursor:dragging===item.id?"grabbing":"grab",
-              boxShadow:selected===item.id?`0 0 12px ${c.pink}55`:"none",transition:"box-shadow .15s"}}
+              borderRadius:10,userSelect:"none",
+              cursor:dragging===item.id?"grabbing":"grab",
+              boxShadow:selected===item.id?`0 0 12px ${c.pink}55`:"none",
+              transition:"box-shadow .15s"}}
             onMouseDown={e=>{e.stopPropagation();startDrag(e,item.id);}}
             onTouchStart={e=>{e.stopPropagation();startDrag(e,item.id);}}>
             {item.type==="image"?(
-              <img src={item.src} style={{width:"100%",borderRadius:8,display:"block",pointerEvents:"none"}} alt="vision" draggable={false}/>
+              <img src={item.src} style={{width:"100%",borderRadius:8,display:"block",pointerEvents:"none",draggable:false}} alt="vision" draggable={false}/>
             ):(
               <div style={{padding:"8px 10px",fontFamily:"'Playfair Display',serif",fontStyle:"italic",
                 fontSize:item.fontSize||18,color:item.color||c.pink,lineHeight:1.3,
@@ -366,16 +373,712 @@ const VisionBoard = memo(({ wishlist, setWishlistS, c, s, grad }) => {
                 {item.text}
               </div>
             )}
-            {/* Resize handle */}
-            <div style={{position:"absolute",bottom:-4,right:-4,width:16,height:16,borderRadius:"50%",
-              background:c.pink,cursor:"se-resize",zIndex:10,border:`2px solid ${c.bg}`,
-              display:selected===item.id?"flex":"none",alignItems:"center",justifyContent:"center"}}
-              onMouseDown={e=>startResize(e,item.id)}
-              onTouchStart={e=>startResize(e,item.id)}>
-              <div style={{width:6,height:6,background:"#fff",borderRadius:1,transform:"rotate(45deg)"}}/>
+            {/* Resize handle — always rendered, visibility via opacity so touch target exists */}
+            <div
+              style={{
+                position:"absolute",bottom:-8,right:-8,
+                width:24,height:24,
+                borderRadius:"50%",
+                background:selected===item.id?c.pink:`${c.pink}44`,
+                cursor:"se-resize",
+                zIndex:20,
+                border:`2px solid ${c.bg}`,
+                display:"flex",
+                alignItems:"center",
+                justifyContent:"center",
+                opacity:selected===item.id?1:0,
+                pointerEvents:selected===item.id?"auto":"none",
+                touchAction:"none",
+                transition:"opacity .15s",
+              }}
+              onMouseDown={e=>{e.stopPropagation();e.preventDefault();startResize(e,item.id);}}
+              onTouchStart={e=>{e.stopPropagation();e.preventDefault();startResize(e,item.id);}}>
+              <svg width="10" height="10" viewBox="0 0 10 10" style={{pointerEvents:"none"}}>
+                <path d="M2 8 L8 8 L8 2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round"/>
+              </svg>
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+});
+
+// ── OVERVIEW VIEW (outside App) ──
+const OverviewView = memo(({ mission, setMissionS, editingMission, setEditingMission, currentDay, streak, completedDays, totalDays, getDayData, updateDayData, getDayPct, getHabitStreak, habits, setView, c, s, grad }) => {
+  const pct=Math.round((completedDays/totalDays)*100);
+  const todayMood=getDayData(currentDay).mood;
+  const [localMission, setLocalMission] = useState(mission);
+
+  useEffect(()=>{ setLocalMission(mission); },[mission]);
+
+  return(
+    <div className="fade">
+      <div style={s.card(true)}>
+        <div style={s.sectionLabel}>💌 My Mission</div>
+        {editingMission?(<>
+          <textarea style={{...s.textarea,minHeight:100}} value={localMission} onChange={e=>setLocalMission(e.target.value)} autoFocus/>
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <button style={s.pinkBtn} onClick={()=>{setEditingMission(false);setMissionS(localMission);}}>Save ✓</button>
+            <button style={s.ghostBtn} onClick={()=>setEditingMission(false)}>Cancel</button>
+          </div>
+        </>):(
+          <div onClick={()=>setEditingMission(true)} style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:14,lineHeight:1.8,color:c.offwhite,cursor:"pointer",opacity:.9}}>
+            "{mission}" <span style={{fontSize:10,color:c.pink,marginLeft:6}}>✏️</span>
+          </div>
+        )}
+      </div>
+      <div style={s.statRow}>
+        {[{n:currentDay,l:"Today"},{n:streak,l:"Streak 🔥"},{n:completedDays,l:"Done ✨"}].map(({n,l})=>(
+          <div key={l} style={s.statBox}><div style={s.statNum}>{n}</div><div style={s.statLabel}>{l}</div></div>
+        ))}
+      </div>
+      <div style={s.card()}>
+        <div style={s.sectionLabel}>😊 Today's Mood</div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {MOODS.map(m=>(<button key={m.emoji} onClick={()=>updateDayData(currentDay,{mood:todayMood===m.emoji?"":m.emoji})}
+            style={{padding:"7px 8px",borderRadius:10,border:`1px solid ${todayMood===m.emoji?c.pink:c.border}`,background:todayMood===m.emoji?`${c.pink}22`:c.surface,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+            <span style={{fontSize:20}}>{m.emoji}</span><span style={{fontSize:7,color:todayMood===m.emoji?c.pink:c.muted}}>{m.label}</span>
+          </button>))}
+        </div>
+      </div>
+      <div style={s.card()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={s.sectionLabel}>Overall Progress</div>
+          <span style={{fontFamily:"'Playfair Display',serif",fontSize:22,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{pct}%</span>
+        </div>
+        <div style={s.progressTrack}><div style={s.progressFill(pct)}/></div>
+        <div style={{fontSize:11,color:c.muted,marginTop:6,textAlign:"right"}}>{completedDays}/{totalDays} days 🌸</div>
+      </div>
+      <div style={s.card()}>
+        <div style={s.sectionLabel}>Day Map 🗺️</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(10,1fr)",gap:4,marginBottom:8}}>
+          {Array.from({length:totalDays},(_,i)=>i+1).map(day=>(<div key={day} style={s.dayDot(day,getDayPct(day))} onClick={()=>setView(`day-${day}`)}>{day}</div>))}
+        </div>
+      </div>
+      <div style={s.card()}>
+        <div style={s.sectionLabel}>🔥 Habit Streaks</div>
+        {habits.map(h=>{const hs=getHabitStreak(h.id);return(
+          <div key={h.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${c.borderSoft}`}}>
+            <span style={{fontSize:16}}>{h.icon}</span><span style={{flex:1,fontSize:12,color:c.offwhite}}>{h.label}</span>
+            <div style={{display:"flex",alignItems:"center",gap:3,background:`${c.pink}18`,border:`1px solid ${c.pink}33`,borderRadius:8,padding:"2px 8px"}}><span style={{fontSize:12}}>🔥</span><span style={{fontSize:12,fontWeight:700,color:c.pink}}>{hs}</span></div>
+          </div>
+        );})}
+      </div>
+      <div style={s.card()}>
+        <div style={s.sectionLabel}>Today's Habits — Day {currentDay}</div>
+        {habits.map((h,i)=>{const checked=getDayData(currentDay).habits[h.id];const isRest=getDayData(currentDay).restDay;return(
+          <div key={h.id} style={{...s.habitRow,borderBottom:i===habits.length-1?"none":`1px solid ${c.borderSoft}`,opacity:isRest?.5:1}} onClick={()=>!isRest&&updateDayData(currentDay,{habits:{...getDayData(currentDay).habits,[h.id]:!checked}})}>
+            <div style={s.checkbox(checked)}>{checked&&<span style={{fontSize:12,color:"#fff",fontWeight:900}}>✓</span>}</div>
+            <span style={{fontSize:13,color:checked?c.dim:c.offwhite,textDecoration:checked?"line-through":"none",transition:"all .2s"}}>{h.icon} {h.label}</span>
+          </div>
+        );})}
+        <div style={{marginTop:10}}><div style={s.progressTrack}><div style={s.progressFill(getDayPct(currentDay)===-1?0:getDayPct(currentDay))}/></div></div>
+        <button style={{...s.pinkBtn,marginTop:12,width:"100%"}} onClick={()=>setView(`day-${currentDay}`)}>Open Day {currentDay} →</button>
+      </div>
+    </div>
+  );
+});
+
+// ── DAY VIEW (outside App) ──
+const DayView = memo(({ day, currentDay, totalDays, getDayData, getDayPct, toggleHabit, toggleRestDay, updateDayData, habits, dailyPhotos, setDailyPhotosS, setView, c, s, grad }) => {
+  const data=getDayData(day);const pct=getDayPct(day);
+  const[tab,setTab]=useState("habits");
+  const[trading,setTrading]=useState(data.trading||"");
+  const isRest=data.restDay;
+  return(
+    <div className="fade">
+      <div style={{...s.card(true),background:`linear-gradient(145deg,${adj(c.bg,12)},${adj(c.bg,6)})`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:12,color:c.muted,marginBottom:2}}>{isRest?"😴 Rest Day":day===currentDay?"✨ Today":day<currentDay?"Past day":"Upcoming"}</div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:40,background:isRest?`linear-gradient(135deg,${c.rest},#93c5fd)`:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1}}>Day {day}</div>
+          </div>
+          <div style={{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:38,color:isRest?c.rest:c.pink,lineHeight:1}}>{isRest?"😴":pct+"%"}</div>
+            <button onClick={()=>toggleRestDay(day)} style={{padding:"4px 10px",borderRadius:10,border:`1px solid ${isRest?c.rest:c.border}`,background:isRest?`${c.rest}22`:"transparent",color:isRest?c.rest:c.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,cursor:"pointer"}}>{isRest?"✅ Rest Day":"😴 Mark Rest"}</button>
+          </div>
+        </div>
+        {!isRest&&<div style={{...s.progressTrack,marginTop:12}}><div style={s.progressFill(pct)}/></div>}
+        <div style={{marginTop:10}}>
+          <div style={{fontSize:9,color:c.muted,letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>Mood</div>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+            {MOODS.map(m=>(<button key={m.emoji} onClick={()=>updateDayData(day,{mood:data.mood===m.emoji?"":m.emoji})}
+              style={{padding:"4px 6px",borderRadius:8,border:`1px solid ${data.mood===m.emoji?c.pink:c.border}`,background:data.mood===m.emoji?`${c.pink}22`:c.surface,cursor:"pointer",fontSize:16}}>{m.emoji}</button>))}
+          </div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
+        {[["habits","✅ Habits"],["journal","📓 Journal"],["photos","📷 Photos"],["trading","📈 Trading"]].map(([key,label])=>(
+          <button key={key} style={{...s.tab(tab===key),flexShrink:0,fontSize:10}} onClick={()=>setTab(key)}>{label}</button>
+        ))}
+      </div>
+      {tab==="habits"&&(
+        <div style={s.card()}>
+          <div style={s.bigTitle}>Daily Habits</div>
+          {isRest&&<div style={{padding:12,background:`${c.rest}18`,border:`1px solid ${c.rest}44`,borderRadius:10,marginBottom:10,textAlign:"center",color:c.rest,fontSize:12}}>😴 Rest day — habits paused</div>}
+          {habits.map((h,i)=>{
+            const checked=data.habits[h.id];
+            const hs=0;
+            const isScheduled=(h.daysPerWeek||7)===7||true; // always show; scheduling affects % only
+            return(
+              <div key={h.id} style={{...s.habitRow,borderBottom:i===habits.length-1?"none":`1px solid ${c.borderSoft}`,opacity:isRest?.4:1}} onClick={()=>!isRest&&toggleHabit(day,h.id)}>
+                <div style={s.checkbox(checked&&!isRest)}>{checked&&!isRest&&<span style={{fontSize:13,color:"#fff",fontWeight:900}}>✓</span>}</div>
+                <span style={{fontSize:13,color:checked&&!isRest?c.dim:c.offwhite,textDecoration:checked&&!isRest?"line-through":"none",transition:"all .2s",flex:1}}>{h.icon} {h.label}</span>
+                {(h.daysPerWeek||7)<7&&<span style={{fontSize:9,color:c.muted,background:c.surface,border:`1px solid ${c.border}`,borderRadius:6,padding:"1px 5px"}}>{h.daysPerWeek}×/wk</span>}
+              </div>
+            );
+          })}
+          {pct===100&&!isRest&&(<div style={{marginTop:14,padding:14,background:`${c.pink}18`,border:`1px solid ${c.pink}55`,borderRadius:14,textAlign:"center"}}>
+            <div style={{fontSize:26}}>🎉</div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:16,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginTop:4}}>Day {day} Conquered, Queen!</div>
+          </div>)}
+        </div>
+      )}
+      {tab==="journal"&&<JournalCanvas day={day} getDayData={getDayData} updateDayData={updateDayData} c={c} s={s}/>}
+      {tab==="photos"&&<DayPhotos day={day} dailyPhotos={dailyPhotos} setDailyPhotosS={setDailyPhotosS} c={c} s={s}/>}
+      {tab==="trading"&&(
+        <div style={s.card()}>
+          <div style={s.bigTitle}>Trading Analysis</div>
+          <textarea style={{...s.textarea,minHeight:230}}
+            placeholder={"📊 Market conditions:\n\n📈 Trades taken:\n\n👀 Setups watched:\n\n💡 Lessons learned:\n\n🎯 Tomorrow's plan:"}
+            value={trading} onChange={e=>setTrading(e.target.value)} onBlur={()=>updateDayData(day,{trading})}/>
+          <button style={{...s.pinkBtn,marginTop:10}} onClick={()=>updateDayData(day,{trading})}>Save 💾</button>
+        </div>
+      )}
+      <div style={{display:"flex",gap:8,marginTop:6}}>
+        {day>1&&<button style={{...s.ghostBtn,flex:1}} onClick={()=>setView(`day-${day-1}`)}>← Day {day-1}</button>}
+        {day<totalDays&&<button style={{...s.ghostBtn,flex:1}} onClick={()=>setView(`day-${day+1}`)}>Day {day+1} →</button>}
+      </div>
+    </div>
+  );
+});
+
+// ── AFFIRMATIONS (outside App) ──
+const AffirmationsView = memo(({ affirmations, setAffirmationsS, c, s, grad }) => {
+  const[newAff,setNewAff]=useState("");
+  const[editIdx,setEditIdx]=useState(null);
+  const[editText,setEditText]=useState("");
+  return(
+    <div className="fade">
+      <div style={s.card(true)}>
+        <div style={s.bigTitle}>💭 My Affirmations</div>
+        {affirmations.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:c.muted,fontSize:13}}>Add your first affirmation ✨</div>}
+        {affirmations.map((aff,i)=>(
+          <div key={i} style={{padding:"12px",background:c.surface,borderRadius:12,marginBottom:8,border:`1px solid ${c.border}`,position:"relative"}}>
+            {editIdx===i?(<>
+              <textarea style={{...s.textarea,minHeight:60}} value={editText} onChange={e=>setEditText(e.target.value)}/>
+              <div style={{display:"flex",gap:6,marginTop:8}}>
+                <button style={{...s.pinkBtn,padding:"6px 14px",fontSize:12}} onClick={()=>{const u=[...affirmations];u[i]=editText;setAffirmationsS(u);setEditIdx(null);}}>Save</button>
+                <button style={{...s.ghostBtn,padding:"6px 14px",fontSize:12}} onClick={()=>setEditIdx(null)}>Cancel</button>
+              </div>
+            </>):(
+              <>
+                <div style={{fontSize:14,color:c.offwhite,lineHeight:1.6,paddingRight:50,fontStyle:"italic"}}>"{aff}"</div>
+                <div style={{position:"absolute",top:8,right:8,display:"flex",gap:4}}>
+                  <button onClick={()=>{setEditIdx(i);setEditText(aff);}} style={{background:"transparent",border:"none",cursor:"pointer",fontSize:14,color:c.muted}}>✏️</button>
+                  <button onClick={()=>setAffirmationsS(affirmations.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",cursor:"pointer",fontSize:14,color:c.danger}}>×</button>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+        <div style={{display:"flex",gap:8,marginTop:12}}>
+          <input style={{...s.input,flex:1}} placeholder="I am strong, I am capable..." value={newAff}
+            onChange={e=>setNewAff(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter"&&newAff.trim()){setAffirmationsS([...affirmations,newAff.trim()]);setNewAff("");}}}/>
+          <button style={s.pinkBtn} onClick={()=>{if(newAff.trim()){setAffirmationsS([...affirmations,newAff.trim()]);setNewAff("");}}}>Add</button>
+        </div>
+      </div>
+      {affirmations.length>0&&(
+        <div style={{...s.card(true),textAlign:"center"}}>
+          <div style={s.sectionLabel}>✨ Today's Affirmation</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:18,color:c.offwhite,lineHeight:1.8,padding:"8px 0"}}>"{affirmations[new Date().getDate()%affirmations.length]}"</div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ── WEEKLY INTENTION (outside App) ──
+const WeeklyIntentionView = memo(({ currentDay, totalDays, weeklyIntentions, setWeeklyIntentionsS, c, s }) => {
+  const weekNum=Math.ceil(currentDay/7);
+  const key=getWeekKey(currentDay);
+  const intention=weeklyIntentions[key]||{focus:"",goals:[],word:""};
+  const[focus,setFocus]=useState(intention.focus);
+  const[word,setWord]=useState(intention.word);
+  const[localGoals,setLocalGoals]=useState(intention.goals||[]);
+  const[newGoal,setNewGoal]=useState("");
+  function saveInt(overrides={}){const u={...weeklyIntentions,[key]:{focus,goals:localGoals,word,...overrides}};setWeeklyIntentionsS(u);}
+  return(
+    <div className="fade">
+      <div style={s.card(true)}>
+        <div style={s.bigTitle}>🗓️ Week {weekNum} Intentions</div>
+        <div style={{fontSize:11,color:c.muted,marginBottom:14}}>Days {(weekNum-1)*7+1}–{Math.min(weekNum*7,totalDays)}</div>
+        <div style={s.sectionLabel}>🌟 Word of the Week</div>
+        <input style={{...s.input,marginBottom:14}} placeholder="e.g. Discipline, Focus..." value={word} onChange={e=>setWord(e.target.value)} onBlur={()=>saveInt({word})}/>
+        <div style={s.sectionLabel}>🎯 Main Focus</div>
+        <textarea style={{...s.textarea,minHeight:80,marginBottom:14}} placeholder="Your main focus this week..." value={focus} onChange={e=>setFocus(e.target.value)} onBlur={()=>saveInt({focus})}/>
+        <div style={s.sectionLabel}>✅ Weekly Goals</div>
+        {localGoals.map((g,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:`1px solid ${c.borderSoft}`}}>
+            <div style={s.checkbox(g.done)} onClick={()=>{const u=localGoals.map((x,j)=>j===i?{...x,done:!x.done}:x);setLocalGoals(u);saveInt({goals:u});}}>
+              {g.done&&<span style={{fontSize:12,color:"#fff",fontWeight:900}}>✓</span>}
+            </div>
+            <span style={{flex:1,fontSize:13,color:g.done?c.dim:c.offwhite,textDecoration:g.done?"line-through":"none"}}>{g.text}</span>
+            <button onClick={()=>{const u=localGoals.filter((_,j)=>j!==i);setLocalGoals(u);saveInt({goals:u});}} style={{background:"transparent",border:"none",color:c.muted,cursor:"pointer",fontSize:16}}>×</button>
+          </div>
+        ))}
+        <div style={{display:"flex",gap:8,marginTop:10}}>
+          <input style={{...s.input,flex:1}} placeholder="Add a weekly goal..." value={newGoal} onChange={e=>setNewGoal(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter"&&newGoal.trim()){const u=[...localGoals,{text:newGoal.trim(),done:false}];setLocalGoals(u);setNewGoal("");saveInt({goals:u});}}}/>
+          <button style={s.pinkBtn} onClick={()=>{if(newGoal.trim()){const u=[...localGoals,{text:newGoal.trim(),done:false}];setLocalGoals(u);setNewGoal("");saveInt({goals:u});}}}>Add</button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// ── WEEKLY REPORT (outside App) ──
+const WeeklyReportView = memo(({ totalDays, currentDay, weeklyIntentions, getDayPct, getDayData, c, s, grad }) => {
+  const weeks=Math.ceil(totalDays/7);
+  const[selectedWeek,setSelectedWeek]=useState(Math.ceil(currentDay/7));
+
+  function getWeekReport(weekNum){
+    const start=(weekNum-1)*7+1,end=Math.min(weekNum*7,totalDays);
+    const days=Array.from({length:end-start+1},(_,i)=>start+i);
+    const pcts=days.map(d=>{const p=getDayPct(d);return p===-1?null:p;}).filter(p=>p!==null);
+    if(!pcts.length)return null;
+    const avg=Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length);
+    const best=days.reduce((b,d)=>{const p=getDayPct(d);return(p!==-1&&p>(getDayPct(b)||0))?d:b;},start);
+    const worst=days.filter(d=>getDayPct(d)!==-1).reduce((b,d)=>{const p=getDayPct(d);return p<(getDayPct(b)||101)?d:b;},start);
+    return{weekNum,start,end,avg,best,worst,days};
+  }
+
+  const report=getWeekReport(selectedWeek);
+  const intention=weeklyIntentions[getWeekKey((selectedWeek-1)*7+1)]||{};
+  return(
+    <div className="fade">
+      <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:4}}>
+        {Array.from({length:weeks},(_,i)=>i+1).map(w=>(<button key={w} style={{...s.navBtn(w===selectedWeek),flexShrink:0,padding:"6px 12px"}} onClick={()=>setSelectedWeek(w)}>W{w}</button>))}
+      </div>
+      {!report?(<div style={{...s.card(),textAlign:"center",padding:32,color:c.muted}}>No data yet 🌸</div>):(
+        <>
+          <div style={s.card(true)}>
+            <div style={s.bigTitle}>📊 Week {selectedWeek} Report</div>
+            <div style={s.statRow}>
+              <div style={s.statBox}><div style={s.statNum}>{report.avg}%</div><div style={s.statLabel}>Avg</div></div>
+              <div style={s.statBox}><div style={{...s.statNum,color:"#4ade80"}}>D{report.best}</div><div style={s.statLabel}>Best 🔥</div></div>
+              <div style={s.statBox}><div style={{...s.statNum,color:c.danger}}>D{report.worst}</div><div style={s.statLabel}>Tough 💪</div></div>
+            </div>
+            {report.days.map(d=>{const pct=getDayPct(d);const rest=pct===-1;const mood=getDayData(d).mood;
+              return(<div key={d} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <span style={{fontSize:11,color:c.muted,width:28,flexShrink:0}}>D{d}</span>
+                {rest?(<div style={{flex:1,height:20,borderRadius:4,background:`${c.rest}33`,display:"flex",alignItems:"center",paddingLeft:8}}><span style={{fontSize:10,color:c.rest}}>😴 Rest</span></div>):(
+                  <><div style={{...s.progressTrack,flex:1,height:20,borderRadius:6}}><div style={{...s.progressFill(pct),height:"100%",borderRadius:6,display:"flex",alignItems:"center",paddingLeft:6}}>{pct>20&&<span style={{fontSize:10,color:"#fff",fontWeight:700}}>{pct}%</span>}</div></div>{mood&&<span style={{fontSize:16}}>{mood}</span>}</>
+                )}
+              </div>);})}
+          </div>
+          {intention.word&&(<div style={{...s.card(),textAlign:"center"}}><div style={s.sectionLabel}>🌟 Word of the Week</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:28,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{intention.word}</div></div>)}
+        </>
+      )}
+    </div>
+  );
+});
+
+// ── GOALS (outside App) ──
+const GoalsView = memo(({ goals, setGoalsS, c, s, grad }) => {
+  const[showAdd,setShowAdd]=useState(false);
+  const[newGoal,setNewGoal]=useState({title:"",type:"bar",target:100,current:0,unit:"",isMoney:false});
+  const[selectedId,setSelectedId]=useState(null);
+  const[editCurrent,setEditCurrent]=useState("");
+
+  function CircleProgress({pct,size=80,color}){
+    const r=size/2-6;const circ=2*Math.PI*r;const offset=circ-(pct/100)*circ;
+    return(<svg width={size} height={size} style={{transform:"rotate(-90deg)"}}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={c.border} strokeWidth={5}/>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color||c.pink} strokeWidth={5} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" style={{transition:"stroke-dashoffset .6s"}}/>
+      <text x={size/2} y={size/2} textAnchor="middle" dominantBaseline="middle" style={{transform:`rotate(90deg) translate(0,-${size/2}px)`,transformOrigin:`${size/2}px ${size/2}px`}} fill={color||c.pink} fontSize={size*0.18} fontFamily="'Nunito',sans-serif" fontWeight="700">{pct}%</text>
+    </svg>);
+  }
+
+  return(
+    <div className="fade">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:22,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>My Goals 🎯</div>
+        <button style={s.pinkBtn} onClick={()=>setShowAdd(!showAdd)}>+ Add Goal</button>
+      </div>
+      {showAdd&&(
+        <div style={s.card(true)}>
+          <div style={s.sectionLabel}>New Goal ✨</div>
+          <input style={{...s.input,marginBottom:10}} placeholder="Goal title..." value={newGoal.title} onChange={e=>setNewGoal({...newGoal,title:e.target.value})}/>
+          <div style={{fontSize:11,color:c.muted,marginBottom:6}}>Tracker type:</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>
+            {[["bar","📊 Bar"],["circle","⭕ Circle"],["none","✅ Simple"]].map(([type,label])=>(
+              <button key={type} style={{...s.tab(newGoal.type===type),fontSize:11}} onClick={()=>setNewGoal({...newGoal,type})}>{label}</button>
+            ))}
+          </div>
+          {newGoal.type!=="none"&&(
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
+              <div style={{flex:1}}><div style={{fontSize:10,color:c.muted,marginBottom:4}}>Current</div><input type="number" style={s.input} value={newGoal.current} onChange={e=>setNewGoal({...newGoal,current:e.target.value})}/></div>
+              <div style={{flex:1}}><div style={{fontSize:10,color:c.muted,marginBottom:4}}>Target</div><input type="number" style={s.input} value={newGoal.target} onChange={e=>setNewGoal({...newGoal,target:e.target.value})}/></div>
+              <div style={{flex:1}}><div style={{fontSize:10,color:c.muted,marginBottom:4}}>Unit</div><input style={s.input} placeholder="$, lbs..." value={newGoal.unit} onChange={e=>setNewGoal({...newGoal,unit:e.target.value})}/></div>
+            </div>
+          )}
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+            <div style={{...s.checkbox(newGoal.isMoney),cursor:"pointer"}} onClick={()=>setNewGoal({...newGoal,isMoney:!newGoal.isMoney})}>{newGoal.isMoney&&<span style={{fontSize:12,color:"#fff",fontWeight:900}}>✓</span>}</div>
+            <span style={{fontSize:13,color:c.offwhite}}>💰 Money goal</span>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button style={s.pinkBtn} onClick={()=>{if(!newGoal.title.trim())return;const g={...newGoal,id:Date.now(),current:Number(newGoal.current)||0,target:Number(newGoal.target)||100};setGoalsS([...goals,g]);setNewGoal({title:"",type:"bar",target:100,current:0,unit:"",isMoney:false});setShowAdd(false);}}>Save 🎯</button>
+            <button style={s.ghostBtn} onClick={()=>setShowAdd(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {goals.length===0&&!showAdd&&(<div style={{...s.card(),textAlign:"center",padding:32,color:c.muted}}>No goals yet — tap + Add Goal! 🎯</div>)}
+      {goals.map(g=>{
+        const pct=g.type==="none"?0:Math.min(100,Math.round((g.current/g.target)*100))||0;
+        const isSelected=selectedId===g.id;
+        const moneyFmt=(n)=>g.isMoney?`$${Number(n).toLocaleString()}`:n+(g.unit||"");
+        return(
+          <div key={g.id} style={{...s.card(g.isMoney),marginBottom:10,cursor:"pointer"}} onClick={()=>{setSelectedId(isSelected?null:g.id);setEditCurrent(String(g.current));}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div style={{flex:1,paddingRight:8}}>
+                <div style={{fontSize:15,fontWeight:700,color:g.done?c.dim:c.offwhite,marginBottom:2,textDecoration:g.done?"line-through":"none"}}>{g.isMoney?"💰":""} {g.title}</div>
+                {g.type!=="none"&&<div style={{fontSize:11,color:c.muted}}>{moneyFmt(g.current)} / {moneyFmt(g.target)}</div>}
+              </div>
+              {g.type==="none"?(
+                <div style={s.checkbox(g.done)} onClick={e=>{e.stopPropagation();setGoalsS(goals.map(x=>x.id===g.id?{...x,done:!x.done}:x));}}>
+                  {g.done&&<span style={{fontSize:13,color:"#fff",fontWeight:900}}>✓</span>}
+                </div>
+              ):g.type==="circle"?(
+                <CircleProgress pct={pct} size={70} color={g.isMoney?"#fbbf24":c.pink}/>
+              ):(
+                <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,color:g.isMoney?"#fbbf24":c.pink}}>{pct}%</div>
+              )}
+            </div>
+            {g.type==="bar"&&(<div style={{...s.progressTrack,marginTop:10}}><div style={{...s.progressFill(pct),background:g.isMoney?`linear-gradient(90deg,#fbbf24,#f59e0b)`:undefined}}/></div>)}
+            {isSelected&&(
+              <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${c.border}`}} onClick={e=>e.stopPropagation()}>
+                {g.type!=="none"&&(
+                  <>
+                    <div style={{fontSize:11,color:c.muted,marginBottom:6}}>Update progress</div>
+                    <input type="number" style={{...s.input,marginBottom:8}} value={editCurrent} onChange={e=>setEditCurrent(e.target.value)}
+                      onBlur={()=>setGoalsS(goals.map(x=>x.id===g.id?{...x,current:Number(editCurrent)}:x))}/>
+                  </>
+                )}
+                <button style={{...s.ghostBtn,color:c.danger,borderColor:c.danger,fontSize:12,padding:"6px 14px"}}
+                  onClick={()=>{setGoalsS(goals.filter(x=>x.id!==g.id));setSelectedId(null);}}>Delete Goal</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
+// ── VISION + BINGO (outside App) ──
+const VisionBoardView = memo(({ wishlist, setWishlistS, bingoCard, setBingoCardS, c, s, grad }) => {
+  const[tab,setTab]=useState("board");
+  const completedRows=checkBingoRows(bingoCard);
+
+  function toggleBingo(i){const updated=bingoCard.map((cell,idx)=>idx===i?{...cell,done:!cell.done}:cell);setBingoCardS(updated);}
+
+  // Key fix: use a stable local state for bingo text editing so typing doesn't reset
+  const[localBingo,setLocalBingo]=useState(bingoCard);
+  useEffect(()=>setLocalBingo(bingoCard),[bingoCard]);
+
+  function setBingoText(i,text){
+    const updated=localBingo.map((cell,idx)=>idx===i?{...cell,text}:cell);
+    setLocalBingo(updated);
+  }
+  function saveBingoText(i){
+    setBingoCardS(localBingo);
+  }
+
+  return(
+    <div className="fade">
+      <div style={{display:"flex",gap:6,marginBottom:12}}>
+        <button style={s.tab(tab==="board")} onClick={()=>setTab("board")}>🎯 Vision Board</button>
+        <button style={s.tab(tab==="bingo")} onClick={()=>setTab("bingo")}>⭐️ Bingo</button>
+      </div>
+      {tab==="board"&&<VisionBoard wishlist={wishlist} setWishlistS={setWishlistS} c={c} s={s} grad={grad}/>}
+      {tab==="bingo"&&(
+        <div style={s.card(true)}>
+          <div style={s.bigTitle}>⭐️ Bingo Card</div>
+          {completedRows.length>0&&(<div style={{padding:"8px 12px",background:`${c.pink}22`,border:`1px solid ${c.pink}44`,borderRadius:10,marginBottom:12,textAlign:"center",fontSize:13,color:c.pink,fontWeight:700}}>🎉 {completedRows.length} Bingo{completedRows.length>1?"s":""} Completed! ⭐️</div>)}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
+            {bingoCard.map((cell,i)=>{const row=Math.floor(i/5);const isRowComplete=completedRows.includes(row);return(
+              <div key={i} style={{position:"relative",aspectRatio:"1",borderRadius:8,background:isRowComplete?`linear-gradient(135deg,${c.pink}33,${c.purple}33)`:cell.done?`${c.pink}22`:c.surface,border:`1px solid ${isRowComplete?c.pink:cell.done?c.pink:c.border}`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",boxShadow:isRowComplete?`0 0 8px ${c.pink}44`:"none",cursor:"pointer"}} onClick={()=>toggleBingo(i)}>
+                {isRowComplete?(<span className="star-pop" style={{fontSize:22,position:"absolute",zIndex:2}}>⭐️</span>):cell.done?(<span style={{fontSize:18,position:"absolute",zIndex:2}}>✅</span>):null}
+                <span style={{fontSize:7,color:c.muted,textAlign:"center",padding:2,lineHeight:1.2,opacity:isRowComplete||cell.done?0.3:1,zIndex:1,overflow:"hidden",wordBreak:"break-word"}}>{cell.text||`#${i+1}`}</span>
+              </div>
+            );})}
+          </div>
+          <div style={{marginTop:14}}>
+            <div style={s.sectionLabel}>✏️ Edit Squares</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              {localBingo.map((cell,i)=>(<div key={i} style={{display:"flex",gap:4,alignItems:"center"}}>
+                <span style={{fontSize:10,color:c.muted,width:16,flexShrink:0}}>#{i+1}</span>
+                <input
+                  style={{...s.input,fontSize:11,padding:"5px 8px"}}
+                  placeholder={`Square ${i+1}`}
+                  value={cell.text}
+                  onChange={e=>setBingoText(i,e.target.value)}
+                  onBlur={()=>saveBingoText(i)}
+                />
+              </div>))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ── WISHLIST (outside App) ──
+const WishlistView = memo(({ wishlist, setWishlistS, c, s, grad }) => {
+  const[showAdd,setShowAdd]=useState(false);
+  const[selectedItem,setSelectedItem]=useState(null);
+  const[editingItem,setEditingItem]=useState(null);
+  const[newItem,setNewItem]=useState({title:"",category:"Fashion",link:"",social:"",notes:"",imgSrc:""});
+  const[newCategory,setNewCategory]=useState("");
+  const[filterCat,setFilterCat]=useState("All");
+  const wishItems=wishlist.filter(w=>w.category!=="Vision Board");
+  const categories=["All",...new Set(wishItems.map(w=>w.category))];
+
+  async function handleImg(e,isEdit=false){
+    const file=e.target.files[0];if(!file)return;
+    const b64=await fileToBase64(file);
+    if(isEdit)setEditingItem(p=>({...p,imgSrc:b64}));
+    else setNewItem(p=>({...p,imgSrc:b64}));
+  }
+
+  function addItem(){
+    if(!newItem.title.trim())return;
+    setWishlistS([...wishlist,{...newItem,id:Date.now(),type:"wish"}]);
+    setNewItem({title:"",category:newItem.category,link:"",social:"",notes:"",imgSrc:""});
+    setShowAdd(false);
+  }
+
+  function saveEdit(){
+    setWishlistS(wishlist.map(w=>w.id===editingItem.id?editingItem:w));
+    setEditingItem(null);setSelectedItem(null);
+  }
+
+  const filtered=filterCat==="All"?wishItems:wishItems.filter(w=>w.category===filterCat);
+
+  return(
+    <div className="fade">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:22,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Wishlist 🛍️</div>
+        <button style={s.pinkBtn} onClick={()=>setShowAdd(!showAdd)}>+ Add</button>
+      </div>
+      {showAdd&&(
+        <div style={s.card(true)}>
+          <div style={s.sectionLabel}>New Item ✨</div>
+          <div style={{position:"relative",borderRadius:12,overflow:"hidden",marginBottom:10,background:c.surface,border:`2px dashed ${c.border}`,height:120,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+            {newItem.imgSrc?(<img src={newItem.imgSrc} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="item"/>):(<div style={{textAlign:"center"}}><div style={{fontSize:24}}>📷</div><div style={{fontSize:11,color:c.muted,marginTop:4}}>Add photo</div></div>)}
+            <input type="file" accept="image/*" onChange={e=>handleImg(e,false)} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%"}}/>
+          </div>
+          <input style={{...s.input,marginBottom:8}} placeholder="Item name..." value={newItem.title} onChange={e=>setNewItem({...newItem,title:e.target.value})}/>
+          <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap"}}>
+            {["Fashion","Beauty","Home","Tech","Travel","Food","Other"].map(cat=>(<button key={cat} style={{...s.navBtn(newItem.category===cat),padding:"4px 10px",fontSize:11}} onClick={()=>setNewItem({...newItem,category:cat})}>{cat}</button>))}
+          </div>
+          <div style={{display:"flex",gap:6,marginBottom:8}}>
+            <input style={{...s.input,flex:1,fontSize:12}} placeholder="Custom category..." value={newCategory} onChange={e=>setNewCategory(e.target.value)}/>
+            <button style={{...s.ghostBtn,padding:"8px 12px",fontSize:12}} onClick={()=>{if(newCategory.trim()){setNewItem({...newItem,category:newCategory.trim()});setNewCategory("");}}}>Set</button>
+          </div>
+          <input style={{...s.input,marginBottom:8}} placeholder="Website URL (optional)" value={newItem.link} onChange={e=>setNewItem({...newItem,link:e.target.value})}/>
+          <input style={{...s.input,marginBottom:8}} placeholder="Social media @ (optional)" value={newItem.social} onChange={e=>setNewItem({...newItem,social:e.target.value})}/>
+          <textarea style={{...s.textarea,minHeight:60,marginBottom:10}} placeholder="Notes..." value={newItem.notes} onChange={e=>setNewItem({...newItem,notes:e.target.value})}/>
+          <div style={{display:"flex",gap:8}}>
+            <button style={s.pinkBtn} onClick={addItem}>Save 🛍️</button>
+            <button style={s.ghostBtn} onClick={()=>setShowAdd(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {categories.length>1&&(
+        <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:4}}>
+          {categories.map(cat=>(<button key={cat} style={{...s.navBtn(filterCat===cat),flexShrink:0,fontSize:11,padding:"5px 12px"}} onClick={()=>setFilterCat(cat)}>{cat}</button>))}
+        </div>
+      )}
+      {filtered.length===0&&(<div style={{...s.card(),textAlign:"center",padding:32,color:c.muted}}>No items yet 🛍️</div>)}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        {filtered.map(item=>(
+          <div key={item.id} style={{position:"relative",borderRadius:14,overflow:"hidden",cursor:"pointer",background:c.surface,border:`1px solid ${c.border}`,transition:"transform .15s"}}
+            onClick={()=>setSelectedItem(selectedItem?.id===item.id?null:item)}>
+            {item.imgSrc?(<img src={item.imgSrc} style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}} alt={item.title}/>):(<div style={{aspectRatio:"1",background:`linear-gradient(135deg,${c.pink}22,${c.purple}22)`,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:32}}>🛍️</span></div>)}
+            <div style={{padding:"8px 10px"}}><div style={{fontSize:12,fontWeight:700,color:c.offwhite,marginBottom:2}}>{item.title}</div><div style={{fontSize:10,color:c.pink}}>{item.category}</div></div>
+          </div>
+        ))}
+      </div>
+      {selectedItem&&!editingItem&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setSelectedItem(null)}>
+          <div style={{...s.card(),width:"100%",maxWidth:520,margin:"0 auto",borderRadius:"20px 20px 0 0",maxHeight:"85vh",overflowY:"auto",paddingBottom:32}} onClick={e=>e.stopPropagation()}>
+            {selectedItem.imgSrc&&<img src={selectedItem.imgSrc} style={{width:"100%",borderRadius:12,marginBottom:12}} alt={selectedItem.title}/>}
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:c.offwhite,marginBottom:4}}>{selectedItem.title}</div>
+            <div style={{fontSize:11,color:c.pink,marginBottom:12}}>{selectedItem.category}</div>
+            {selectedItem.link&&(<a href={selectedItem.link} target="_blank" rel="noreferrer" style={{display:"block",padding:"10px 14px",background:`${c.pink}22`,border:`1px solid ${c.pink}44`,borderRadius:10,color:c.pink,fontSize:12,marginBottom:8,textDecoration:"none"}}>🔗 Visit Website</a>)}
+            {selectedItem.social&&(<div style={{padding:"10px 14px",background:`${c.purple}22`,border:`1px solid ${c.purple}44`,borderRadius:10,color:c.purple,fontSize:12,marginBottom:8}}>📱 {selectedItem.social}</div>)}
+            {selectedItem.notes&&<div style={{fontSize:12,color:c.muted,lineHeight:1.6,marginBottom:12}}>{selectedItem.notes}</div>}
+            <div style={{display:"flex",gap:8}}>
+              <button style={{...s.pinkBtn,flex:1}} onClick={()=>setEditingItem({...selectedItem})}>✏️ Edit</button>
+              <button style={{...s.ghostBtn,flex:1}} onClick={()=>setSelectedItem(null)}>Close</button>
+              <button style={{...s.ghostBtn,color:c.danger,borderColor:c.danger}} onClick={()=>{setWishlistS(wishlist.filter(w=>w.id!==selectedItem.id));setSelectedItem(null);}}>🗑️</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {editingItem&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setEditingItem(null)}>
+          <div style={{...s.card(),width:"100%",maxWidth:520,margin:"0 auto",borderRadius:"20px 20px 0 0",maxHeight:"90vh",overflowY:"auto",paddingBottom:32}} onClick={e=>e.stopPropagation()}>
+            <div style={s.bigTitle}>✏️ Edit Item</div>
+            <div style={{position:"relative",borderRadius:12,overflow:"hidden",marginBottom:10,background:c.surface,border:`2px dashed ${c.border}`,height:120,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+              {editingItem.imgSrc?(<img src={editingItem.imgSrc} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="edit"/>):(<div style={{textAlign:"center"}}><div style={{fontSize:24}}>📷</div><div style={{fontSize:11,color:c.muted}}>Change photo</div></div>)}
+              <input type="file" accept="image/*" onChange={e=>handleImg(e,true)} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%"}}/>
+            </div>
+            <input style={{...s.input,marginBottom:8}} value={editingItem.title} onChange={e=>setEditingItem({...editingItem,title:e.target.value})}/>
+            <input style={{...s.input,marginBottom:8}} placeholder="Website URL" value={editingItem.link||""} onChange={e=>setEditingItem({...editingItem,link:e.target.value})}/>
+            <input style={{...s.input,marginBottom:8}} placeholder="Social @" value={editingItem.social||""} onChange={e=>setEditingItem({...editingItem,social:e.target.value})}/>
+            <textarea style={{...s.textarea,minHeight:60,marginBottom:10}} value={editingItem.notes||""} onChange={e=>setEditingItem({...editingItem,notes:e.target.value})}/>
+            <div style={{display:"flex",gap:8}}>
+              <button style={s.pinkBtn} onClick={saveEdit}>Save Changes ✓</button>
+              <button style={s.ghostBtn} onClick={()=>setEditingItem(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ── PROGRESS PHOTOS (outside App) ──
+const ProgressPhotosView = memo(({ progressPhotos, setProgressPhotosS, photoQuestions, setPhotoQuestionsS, c, s }) => {
+  const[phase,setPhase]=useState("before");
+  const[editingQ,setEditingQ]=useState(false);
+  const[localQ,setLocalQ]=useState([...photoQuestions]);
+  const photos=progressPhotos||{before:null,after:null,beforeAnswers:{},afterAnswers:{}};
+  const answers=phase==="before"?(photos.beforeAnswers||{}):(photos.afterAnswers||{});
+
+  useEffect(()=>setLocalQ([...photoQuestions]),[photoQuestions]);
+
+  async function handlePhoto(e){const file=e.target.files[0];if(!file)return;const b64=await fileToBase64(file);setProgressPhotosS({...photos,[phase]:b64});}
+  function setAnswer(i,val){const key=phase==="before"?"beforeAnswers":"afterAnswers";setProgressPhotosS({...photos,[key]:{...answers,[i]:val}});}
+  return(
+    <div className="fade">
+      <div style={s.card(true)}>
+        <div style={s.bigTitle}>📸 Progress Photos</div>
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          <button style={{...s.tab(phase==="before"),flex:1}} onClick={()=>setPhase("before")}>Before 🌱</button>
+          <button style={{...s.tab(phase==="after"),flex:1}} onClick={()=>setPhase("after")}>After 🦋</button>
+        </div>
+        <div style={{position:"relative",borderRadius:16,overflow:"hidden",marginBottom:14,background:c.surface,border:`2px dashed ${c.border}`,minHeight:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {photos[phase]?(<img src={photos[phase]} style={{width:"100%",borderRadius:14,display:"block"}} alt={phase}/>):(<div style={{textAlign:"center",padding:24}}><div style={{fontSize:36,marginBottom:8}}>📷</div><div style={{fontSize:13,color:c.muted}}>Tap to add your {phase} photo</div></div>)}
+          <input type="file" accept="image/*" onChange={handlePhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%"}}/>
+        </div>
+        <div style={s.sectionLabel}>✍️ {phase==="before"?"Before":"After"} Questions</div>
+        {photoQuestions.map((q,i)=>(<div key={i} style={{marginBottom:12}}>
+          <div style={{fontSize:12,color:c.pink,fontWeight:700,marginBottom:4}}>{q}</div>
+          <textarea style={{...s.textarea,minHeight:60,fontSize:12}} placeholder="Write your answer..." value={answers[i]||""} onChange={e=>setAnswer(i,e.target.value)}/>
+        </div>))}
+        {editingQ?(<div style={{marginTop:8}}>
+          {localQ.map((q,i)=>(<div key={i} style={{display:"flex",gap:6,marginBottom:8}}>
+            <input style={{...s.input,flex:1}} value={q} onChange={e=>{const u=[...localQ];u[i]=e.target.value;setLocalQ(u);}}/>
+            <button onClick={()=>setLocalQ(localQ.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:c.danger,cursor:"pointer",fontSize:18}}>×</button>
+          </div>))}
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            <button style={s.pinkBtn} onClick={()=>{setPhotoQuestionsS(localQ);setEditingQ(false);}}>Save</button>
+            <button style={s.ghostBtn} onClick={()=>setEditingQ(false)}>Cancel</button>
+          </div>
+          <button style={{...s.ghostBtn,marginTop:8,width:"100%"}} onClick={()=>setLocalQ([...localQ,""])}>+ Add Question</button>
+        </div>):(<button style={{...s.ghostBtn,marginTop:8,width:"100%",fontSize:12}} onClick={()=>setEditingQ(true)}>✏️ Edit Questions</button>)}
+      </div>
+      {photos.before&&photos.after&&(<div style={s.card()}>
+        <div style={s.sectionLabel}>✨ Your Transformation</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <div><div style={{fontSize:10,color:c.muted,textAlign:"center",marginBottom:4}}>BEFORE 🌱</div><img src={photos.before} style={{width:"100%",borderRadius:12}} alt="before"/></div>
+          <div><div style={{fontSize:10,color:c.muted,textAlign:"center",marginBottom:4}}>AFTER 🦋</div><img src={photos.after} style={{width:"100%",borderRadius:12}} alt="after"/></div>
+        </div>
+      </div>)}
+    </div>
+  );
+});
+
+// ── SETTINGS (outside App) ──
+const SettingsView = memo(({ habits, setHabitsS, totalDays, setTotalDaysS, startDate, setStartDateS, accent, setAccentS, secondary, setSecondaryS, bgColor, setBgColorS, dayData, setDayData, scheduleSave, c, s, grad, gradBtn }) => {
+  const[localDays,setLocalDays]=useState(totalDays);
+  const[localStart,setLocalStart]=useState(startDate);
+  const[newHabit,setNewHabit]=useState("");
+
+  // Habit scheduling: daysPerWeek per habit
+  function updateHabitDays(id, days){
+    setHabitsS(habits.map(h=>h.id===id?{...h,daysPerWeek:days}:h));
+  }
+
+  return(
+    <div className="fade">
+      <div style={s.card()}>
+        <div style={s.bigTitle}>🎨 Color Studio</div>
+        <div style={{height:12,borderRadius:10,marginBottom:20,overflow:"hidden",background:`linear-gradient(90deg,${c.pink},${c.purple},${adj(c.pink,15)},${c.purple})`,boxShadow:`0 0 20px ${c.pink}55`}}/>
+        <ColorPicker label="✨ Accent" hint="buttons & highlights" value={accent} onChange={setAccentS} c={c}/>
+        <ColorPicker label="💜 Secondary" hint="gradients" value={secondary} onChange={setSecondaryS} c={c}/>
+        <ColorPicker label="🌙 Background" hint="app background" value={bgColor} onChange={setBgColorS} c={c}/>
+        <div style={{...s.sectionLabel,marginTop:4}}>Quick Presets</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {PRESETS.map(p=>{const active=accent===p.accent&&secondary===p.secondary;return(
+            <button key={p.name} onClick={()=>{setAccentS(p.accent);setSecondaryS(p.secondary);setBgColorS(p.bg);}}
+              style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:12,border:`1px solid ${active?p.accent:c.border}`,background:active?`${p.accent}22`:c.surface,cursor:"pointer",fontFamily:"'Nunito',sans-serif",transition:"all .2s"}}>
+              <div style={{display:"flex",gap:3}}>{[p.accent,p.secondary,p.bg].map((col,i)=>(<div key={i} style={{width:13,height:13,borderRadius:"50%",background:col,border:i===2?`1px solid ${c.border}`:"none"}}/>))}</div>
+              <span style={{fontSize:11,color:c.offwhite,fontWeight:600}}>{p.name}</span>
+            </button>
+          );})}
+        </div>
+      </div>
+      <div style={s.card()}>
+        <div style={s.bigTitle}>My Habits 🌸</div>
+        <div style={{fontSize:11,color:c.muted,marginBottom:10}}>Set how many days/week each habit applies. Days it doesn't apply won't count against your score.</div>
+        {habits.map((h,i)=>(
+          <div key={h.id} style={{...s.habitRow,cursor:"default",borderBottom:i===habits.length-1?"none":`1px solid ${c.borderSoft}`,flexWrap:"wrap",gap:8}}>
+            <span style={{flex:1,fontSize:13,color:c.offwhite,minWidth:120}}>{h.icon} {h.label}</span>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:10,color:c.muted}}>Days/week:</span>
+              <div style={{display:"flex",gap:3}}>
+                {[1,2,3,4,5,6,7].map(d=>(
+                  <button key={d} onClick={()=>updateHabitDays(h.id,d)}
+                    style={{width:22,height:22,borderRadius:6,border:`1px solid ${(h.daysPerWeek||7)===d?c.pink:c.border}`,background:(h.daysPerWeek||7)===d?`${c.pink}33`:"transparent",color:(h.daysPerWeek||7)===d?c.pink:c.muted,fontSize:9,cursor:"pointer",fontWeight:700,fontFamily:"'Nunito',sans-serif"}}>
+                    {d}
+                  </button>
+                ))}
+              </div>
+              <button style={{background:"transparent",border:"none",color:c.muted,cursor:"pointer",fontSize:18,marginLeft:4}} onClick={()=>setHabitsS(habits.filter(x=>x.id!==h.id))}>×</button>
+            </div>
+          </div>
+        ))}
+        <div style={{display:"flex",gap:8,marginTop:14}}>
+          <input style={{...s.input,flex:1}} placeholder="Add a new habit..." value={newHabit} onChange={e=>setNewHabit(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter"&&newHabit.trim()){setHabitsS([...habits,{id:Date.now(),label:newHabit.trim(),icon:"✨",daysPerWeek:7}]);setNewHabit("");}}}/>
+          <button style={s.pinkBtn} onClick={()=>{if(newHabit.trim()){setHabitsS([...habits,{id:Date.now(),label:newHabit.trim(),icon:"✨",daysPerWeek:7}]);setNewHabit("");}}}>Add</button>
+        </div>
+      </div>
+      <div style={s.card()}>
+        <div style={s.bigTitle}>Challenge Setup ⚙️</div>
+        <div style={{marginBottom:14}}><div style={{...s.sectionLabel,marginBottom:6}}>Total Days</div><input type="number" style={s.input} value={localDays} min={1} max={365} onChange={e=>setLocalDays(Number(e.target.value))} onBlur={()=>setTotalDaysS(localDays)}/></div>
+        <div><div style={{...s.sectionLabel,marginBottom:6}}>Start Date</div><input type="date" style={s.input} value={localStart} onChange={e=>setLocalStart(e.target.value)} onBlur={()=>setStartDateS(localStart)}/></div>
+      </div>
+      <div style={s.card()}>
+        <div style={s.bigTitle}>🔔 Notifications</div>
+        {["Open your iPhone Reminders app","Tap + to create a new reminder","Name it '75 Hard Check-in 🌸'","Set time to 8pm daily","Set repeat to Every Day","Bookmark your Vercel URL for quick access"].map((step,i)=>(
+          <div key={i} style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"}}>
+            <div style={{width:20,height:20,borderRadius:"50%",background:gradBtn,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:10,color:"#fff",fontWeight:700}}>{i+1}</div>
+            <span style={{fontSize:12,color:c.offwhite,lineHeight:1.6}}>{step}</span>
+          </div>
+        ))}
+      </div>
+      <div style={s.card()}>
+        <div style={s.bigTitle}>Data 🗂️</div>
+        <button style={{...s.ghostBtn,color:c.danger,borderColor:c.danger,width:"100%"}} onClick={()=>{if(window.confirm("Reset all progress? 💔")){const e={};setDayData(e);scheduleSave({dayData:e});}}}>Reset All Progress 🗑️</button>
       </div>
     </div>
   );
@@ -390,7 +1093,6 @@ export default function App() {
   const [habits, setHabits] = useState(DEFAULT_HABITS);
   const [dayData, setDayData] = useState({});
   const [editingMission, setEditingMission] = useState(false);
-  const [newHabit, setNewHabit] = useState("");
   const [accent, setAccent] = useState("#ec4899");
   const [secondary, setSecondary] = useState("#c084fc");
   const [bgColor, setBgColor] = useState("#0d0010");
@@ -422,7 +1124,7 @@ export default function App() {
         if(error)throw error;
         if(data){
           if(data.mission)setMission(data.mission);
-          if(data.habits)setHabits(data.habits);
+          if(data.habits)setHabits(data.habits.map(h=>({...h,daysPerWeek:h.daysPerWeek||7})));
           if(data.day_data)setDayData(data.day_data);
           if(data.total_days)setTotalDays(data.total_days);
           if(data.start_date)setStartDate(data.start_date);
@@ -450,7 +1152,7 @@ export default function App() {
       .on("postgres_changes",{event:"UPDATE",schema:"public",table:"tracker_data"},(payload)=>{
         const d=payload.new;if(!d)return;
         if(d.mission!==undefined)setMission(d.mission);
-        if(d.habits)setHabits(d.habits);
+        if(d.habits)setHabits(d.habits.map(h=>({...h,daysPerWeek:h.daysPerWeek||7})));
         if(d.day_data)setDayData(d.day_data);
         if(d.total_days)setTotalDays(d.total_days);
         if(d.start_date)setStartDate(d.start_date);
@@ -521,20 +1223,28 @@ export default function App() {
   const setPhotoQuestionsS=save("photoQuestions",setPhotoQuestions);
   const setDailyPhotosS=useCallback(save("dailyPhotos",setDailyPhotos),[]);
 
-  function getDayPct(day){const d=getDayData(day);if(d.restDay)return -1;if(!habits.length)return 0;return Math.round((habits.filter(h=>d.habits[h.id]).length/habits.length)*100);}
+  // ── HABIT SCHEDULING: getDayPct respects daysPerWeek ──
+  // A habit is "applicable" on a given day if it's a 7-day habit,
+  // OR if the day number falls within its scheduled slots for that week.
+  // Simple approach: habit is applicable if dayOfWeek (1-based in week) <= daysPerWeek.
+  function isHabitApplicable(habit, day){
+    const dpw = habit.daysPerWeek || 7;
+    if(dpw === 7) return true;
+    const dayOfWeek = ((day - 1) % 7) + 1; // 1–7
+    return dayOfWeek <= dpw;
+  }
+
+  function getDayPct(day){
+    const d=getDayData(day);
+    if(d.restDay)return -1;
+    const applicableHabits=habits.filter(h=>isHabitApplicable(h,day));
+    if(!applicableHabits.length)return 0;
+    return Math.round((applicableHabits.filter(h=>d.habits[h.id]).length/applicableHabits.length)*100);
+  }
+
   function getCurrentDay(){const diff=Math.floor((new Date()-new Date(startDate))/86400000)+1;return Math.min(Math.max(diff,1),totalDays);}
   function getStreak(){let s=0;for(let i=1;i<=totalDays;i++){const p=getDayPct(i);if(p===100||p===-1)s++;else break;}return s;}
   function getHabitStreak(hid){let s=0;for(let i=getCurrentDay();i>=1;i--){const d=getDayData(i);if(d.restDay){s++;continue;}if(d.habits[hid])s++;else break;}return s;}
-  function getWeekReport(weekNum){
-    const start=(weekNum-1)*7+1,end=Math.min(weekNum*7,totalDays);
-    const days=Array.from({length:end-start+1},(_,i)=>start+i);
-    const pcts=days.map(d=>{const p=getDayPct(d);return p===-1?null:p;}).filter(p=>p!==null);
-    if(!pcts.length)return null;
-    const avg=Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length);
-    const best=days.reduce((b,d)=>{const p=getDayPct(d);return(p!==-1&&p>(getDayPct(b)||0))?d:b;},start);
-    const worst=days.filter(d=>getDayPct(d)!==-1).reduce((b,d)=>{const p=getDayPct(d);return p<(getDayPct(b)||101)?d:b;},start);
-    return{weekNum,start,end,avg,best,worst,days};
-  }
 
   const currentDay=getCurrentDay(),streak=getStreak();
   const completedDays=Array.from({length:totalDays},(_,i)=>i+1).filter(d=>getDayPct(d)===100).length;
@@ -597,633 +1307,6 @@ export default function App() {
     </div>);
   }
 
-  // ── OVERVIEW ──
-  function OverviewView(){
-    const pct=Math.round((completedDays/totalDays)*100);
-    const todayMood=getDayData(currentDay).mood;
-    const [localMission, setLocalMission] = useState(mission);
-    return(
-      <div className="fade">
-        <div style={s.card(true)}>
-          <div style={s.sectionLabel}>💌 My Mission</div>
-          {editingMission?(<>
-            <textarea style={{...s.textarea,minHeight:100}} value={localMission} onChange={e=>setLocalMission(e.target.value)} autoFocus/>
-            <div style={{display:"flex",gap:8,marginTop:10}}>
-              <button style={s.pinkBtn} onClick={()=>{setEditingMission(false);setMissionS(localMission);}}>Save ✓</button>
-              <button style={s.ghostBtn} onClick={()=>setEditingMission(false)}>Cancel</button>
-            </div>
-          </>):(
-            <div onClick={()=>setEditingMission(true)} style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:14,lineHeight:1.8,color:c.offwhite,cursor:"pointer",opacity:.9}}>
-              "{mission}" <span style={{fontSize:10,color:c.pink,marginLeft:6}}>✏️</span>
-            </div>
-          )}
-        </div>
-        <div style={s.statRow}>
-          {[{n:currentDay,l:"Today"},{n:streak,l:"Streak 🔥"},{n:completedDays,l:"Done ✨"}].map(({n,l})=>(
-            <div key={l} style={s.statBox}><div style={s.statNum}>{n}</div><div style={s.statLabel}>{l}</div></div>
-          ))}
-        </div>
-        <div style={s.card()}>
-          <div style={s.sectionLabel}>😊 Today's Mood</div>
-          <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-            {MOODS.map(m=>(<button key={m.emoji} onClick={()=>updateDayData(currentDay,{mood:todayMood===m.emoji?"":m.emoji})}
-              style={{padding:"7px 8px",borderRadius:10,border:`1px solid ${todayMood===m.emoji?c.pink:c.border}`,background:todayMood===m.emoji?`${c.pink}22`:c.surface,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
-              <span style={{fontSize:20}}>{m.emoji}</span><span style={{fontSize:7,color:todayMood===m.emoji?c.pink:c.muted}}>{m.label}</span>
-            </button>))}
-          </div>
-        </div>
-        <div style={s.card()}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <div style={s.sectionLabel}>Overall Progress</div>
-            <span style={{fontFamily:"'Playfair Display',serif",fontSize:22,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{pct}%</span>
-          </div>
-          <div style={s.progressTrack}><div style={s.progressFill(pct)}/></div>
-          <div style={{fontSize:11,color:c.muted,marginTop:6,textAlign:"right"}}>{completedDays}/{totalDays} days 🌸</div>
-        </div>
-        <div style={s.card()}>
-          <div style={s.sectionLabel}>Day Map 🗺️</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(10,1fr)",gap:4,marginBottom:8}}>
-            {Array.from({length:totalDays},(_,i)=>i+1).map(day=>(<div key={day} style={s.dayDot(day,getDayPct(day))} onClick={()=>setView(`day-${day}`)}>{day}</div>))}
-          </div>
-        </div>
-        <div style={s.card()}>
-          <div style={s.sectionLabel}>🔥 Habit Streaks</div>
-          {habits.map(h=>{const hs=getHabitStreak(h.id);return(
-            <div key={h.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${c.borderSoft}`}}>
-              <span style={{fontSize:16}}>{h.icon}</span><span style={{flex:1,fontSize:12,color:c.offwhite}}>{h.label}</span>
-              <div style={{display:"flex",alignItems:"center",gap:3,background:`${c.pink}18`,border:`1px solid ${c.pink}33`,borderRadius:8,padding:"2px 8px"}}><span style={{fontSize:12}}>🔥</span><span style={{fontSize:12,fontWeight:700,color:c.pink}}>{hs}</span></div>
-            </div>
-          );})}
-        </div>
-        <div style={s.card()}>
-          <div style={s.sectionLabel}>Today's Habits — Day {currentDay}</div>
-          {habits.map((h,i)=>{const checked=getDayData(currentDay).habits[h.id];const isRest=getDayData(currentDay).restDay;return(
-            <div key={h.id} style={{...s.habitRow,borderBottom:i===habits.length-1?"none":`1px solid ${c.borderSoft}`,opacity:isRest?.5:1}} onClick={()=>!isRest&&toggleHabit(currentDay,h.id)}>
-              <div style={s.checkbox(checked)}>{checked&&<span style={{fontSize:12,color:"#fff",fontWeight:900}}>✓</span>}</div>
-              <span style={{fontSize:13,color:checked?c.dim:c.offwhite,textDecoration:checked?"line-through":"none",transition:"all .2s"}}>{h.icon} {h.label}</span>
-            </div>
-          );})}
-          <div style={{marginTop:10}}><div style={s.progressTrack}><div style={s.progressFill(getDayPct(currentDay)===-1?0:getDayPct(currentDay))}/></div></div>
-          <button style={{...s.pinkBtn,marginTop:12,width:"100%"}} onClick={()=>setView(`day-${currentDay}`)}>Open Day {currentDay} →</button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── DAY VIEW ──
-  function DayView({day}){
-    const data=getDayData(day);const pct=getDayPct(day);
-    const[tab,setTab]=useState("habits");
-    const[trading,setTrading]=useState(data.trading||"");
-    const isRest=data.restDay;
-    return(
-      <div className="fade">
-        <div style={{...s.card(true),background:`linear-gradient(145deg,${adj(c.bg,12)},${adj(c.bg,6)})`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:12,color:c.muted,marginBottom:2}}>{isRest?"😴 Rest Day":day===currentDay?"✨ Today":day<currentDay?"Past day":"Upcoming"}</div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:40,background:isRest?`linear-gradient(135deg,${c.rest},#93c5fd)`:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1}}>Day {day}</div>
-            </div>
-            <div style={{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:38,color:isRest?c.rest:c.pink,lineHeight:1}}>{isRest?"😴":pct+"%"}</div>
-              <button onClick={()=>toggleRestDay(day)} style={{padding:"4px 10px",borderRadius:10,border:`1px solid ${isRest?c.rest:c.border}`,background:isRest?`${c.rest}22`:"transparent",color:isRest?c.rest:c.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,cursor:"pointer"}}>{isRest?"✅ Rest Day":"😴 Mark Rest"}</button>
-            </div>
-          </div>
-          {!isRest&&<div style={{...s.progressTrack,marginTop:12}}><div style={s.progressFill(pct)}/></div>}
-          <div style={{marginTop:10}}>
-            <div style={{fontSize:9,color:c.muted,letterSpacing:2,textTransform:"uppercase",marginBottom:6}}>Mood</div>
-            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-              {MOODS.map(m=>(<button key={m.emoji} onClick={()=>updateDayData(day,{mood:data.mood===m.emoji?"":m.emoji})}
-                style={{padding:"4px 6px",borderRadius:8,border:`1px solid ${data.mood===m.emoji?c.pink:c.border}`,background:data.mood===m.emoji?`${c.pink}22`:c.surface,cursor:"pointer",fontSize:16}}>{m.emoji}</button>))}
-            </div>
-          </div>
-        </div>
-        <div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto"}}>
-          {[["habits","✅ Habits"],["journal","📓 Journal"],["photos","📷 Photos"],["trading","📈 Trading"]].map(([key,label])=>(
-            <button key={key} style={{...s.tab(tab===key),flexShrink:0,fontSize:10}} onClick={()=>setTab(key)}>{label}</button>
-          ))}
-        </div>
-        {tab==="habits"&&(
-          <div style={s.card()}>
-            <div style={s.bigTitle}>Daily Habits</div>
-            {isRest&&<div style={{padding:12,background:`${c.rest}18`,border:`1px solid ${c.rest}44`,borderRadius:10,marginBottom:10,textAlign:"center",color:c.rest,fontSize:12}}>😴 Rest day — habits paused</div>}
-            {habits.map((h,i)=>{const checked=data.habits[h.id];const hs=getHabitStreak(h.id);return(
-              <div key={h.id} style={{...s.habitRow,borderBottom:i===habits.length-1?"none":`1px solid ${c.borderSoft}`,opacity:isRest?.4:1}} onClick={()=>!isRest&&toggleHabit(day,h.id)}>
-                <div style={s.checkbox(checked&&!isRest)}>{checked&&!isRest&&<span style={{fontSize:13,color:"#fff",fontWeight:900}}>✓</span>}</div>
-                <span style={{fontSize:13,color:checked&&!isRest?c.dim:c.offwhite,textDecoration:checked&&!isRest?"line-through":"none",transition:"all .2s",flex:1}}>{h.icon} {h.label}</span>
-                {hs>0&&<div style={{fontSize:10,color:c.pink,background:`${c.pink}18`,borderRadius:6,padding:"1px 6px"}}>🔥{hs}</div>}
-              </div>
-            );})}
-            {pct===100&&!isRest&&(<div style={{marginTop:14,padding:14,background:`${c.pink}18`,border:`1px solid ${c.pink}55`,borderRadius:14,textAlign:"center"}}>
-              <div style={{fontSize:26}}>🎉</div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:16,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginTop:4}}>Day {day} Conquered, Queen!</div>
-            </div>)}
-          </div>
-        )}
-        {tab==="journal"&&<JournalCanvas day={day} getDayData={getDayData} updateDayData={updateDayData} c={c} s={s}/>}
-        {tab==="photos"&&<DayPhotos day={day} dailyPhotos={dailyPhotos} setDailyPhotosS={setDailyPhotosS} c={c} s={s}/>}
-        {tab==="trading"&&(
-          <div style={s.card()}>
-            <div style={s.bigTitle}>Trading Analysis</div>
-            <textarea style={{...s.textarea,minHeight:230}}
-              placeholder={"📊 Market conditions:\n\n📈 Trades taken:\n\n👀 Setups watched:\n\n💡 Lessons learned:\n\n🎯 Tomorrow's plan:"}
-              value={trading} onChange={e=>setTrading(e.target.value)} onBlur={()=>updateDayData(day,{trading})}/>
-            <button style={{...s.pinkBtn,marginTop:10}} onClick={()=>updateDayData(day,{trading})}>Save 💾</button>
-          </div>
-        )}
-        <div style={{display:"flex",gap:8,marginTop:6}}>
-          {day>1&&<button style={{...s.ghostBtn,flex:1}} onClick={()=>setView(`day-${day-1}`)}>← Day {day-1}</button>}
-          {day<totalDays&&<button style={{...s.ghostBtn,flex:1}} onClick={()=>setView(`day-${day+1}`)}>Day {day+1} →</button>}
-        </div>
-      </div>
-    );
-  }
-
-  // ── AFFIRMATIONS ──
-  function AffirmationsView(){
-    const[newAff,setNewAff]=useState("");
-    const[editIdx,setEditIdx]=useState(null);
-    const[editText,setEditText]=useState("");
-    return(
-      <div className="fade">
-        <div style={s.card(true)}>
-          <div style={s.bigTitle}>💭 My Affirmations</div>
-          {affirmations.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:c.muted,fontSize:13}}>Add your first affirmation ✨</div>}
-          {affirmations.map((aff,i)=>(
-            <div key={i} style={{padding:"12px",background:c.surface,borderRadius:12,marginBottom:8,border:`1px solid ${c.border}`,position:"relative"}}>
-              {editIdx===i?(<>
-                <textarea style={{...s.textarea,minHeight:60}} value={editText} onChange={e=>setEditText(e.target.value)}/>
-                <div style={{display:"flex",gap:6,marginTop:8}}>
-                  <button style={{...s.pinkBtn,padding:"6px 14px",fontSize:12}} onClick={()=>{const u=[...affirmations];u[i]=editText;setAffirmationsS(u);setEditIdx(null);}}>Save</button>
-                  <button style={{...s.ghostBtn,padding:"6px 14px",fontSize:12}} onClick={()=>setEditIdx(null)}>Cancel</button>
-                </div>
-              </>):(
-                <>
-                  <div style={{fontSize:14,color:c.offwhite,lineHeight:1.6,paddingRight:50,fontStyle:"italic"}}>"{aff}"</div>
-                  <div style={{position:"absolute",top:8,right:8,display:"flex",gap:4}}>
-                    <button onClick={()=>{setEditIdx(i);setEditText(aff);}} style={{background:"transparent",border:"none",cursor:"pointer",fontSize:14,color:c.muted}}>✏️</button>
-                    <button onClick={()=>setAffirmationsS(affirmations.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",cursor:"pointer",fontSize:14,color:c.danger}}>×</button>
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
-          <div style={{display:"flex",gap:8,marginTop:12}}>
-            <input style={{...s.input,flex:1}} placeholder="I am strong, I am capable..." value={newAff}
-              onChange={e=>setNewAff(e.target.value)}
-              onKeyDown={e=>{if(e.key==="Enter"&&newAff.trim()){setAffirmationsS([...affirmations,newAff.trim()]);setNewAff("");}}}/>
-            <button style={s.pinkBtn} onClick={()=>{if(newAff.trim()){setAffirmationsS([...affirmations,newAff.trim()]);setNewAff("");}}}>Add</button>
-          </div>
-        </div>
-        {affirmations.length>0&&(
-          <div style={{...s.card(true),textAlign:"center"}}>
-            <div style={s.sectionLabel}>✨ Today's Affirmation</div>
-            <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:18,color:c.offwhite,lineHeight:1.8,padding:"8px 0"}}>"{affirmations[new Date().getDate()%affirmations.length]}"</div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ── WEEKLY INTENTION ──
-  function WeeklyIntentionView(){
-    const weekNum=Math.ceil(currentDay/7);
-    const key=getWeekKey(currentDay);
-    const intention=weeklyIntentions[key]||{focus:"",goals:[],word:""};
-    const[focus,setFocus]=useState(intention.focus);
-    const[word,setWord]=useState(intention.word);
-    const[localGoals,setLocalGoals]=useState(intention.goals||[]);
-    const[newGoal,setNewGoal]=useState("");
-    function saveInt(overrides={}){const u={...weeklyIntentions,[key]:{focus,goals:localGoals,word,...overrides}};setWeeklyIntentionsS(u);}
-    return(
-      <div className="fade">
-        <div style={s.card(true)}>
-          <div style={s.bigTitle}>🗓️ Week {weekNum} Intentions</div>
-          <div style={{fontSize:11,color:c.muted,marginBottom:14}}>Days {(weekNum-1)*7+1}–{Math.min(weekNum*7,totalDays)}</div>
-          <div style={s.sectionLabel}>🌟 Word of the Week</div>
-          <input style={{...s.input,marginBottom:14}} placeholder="e.g. Discipline, Focus..." value={word} onChange={e=>setWord(e.target.value)} onBlur={()=>saveInt({word})}/>
-          <div style={s.sectionLabel}>🎯 Main Focus</div>
-          <textarea style={{...s.textarea,minHeight:80,marginBottom:14}} placeholder="Your main focus this week..." value={focus} onChange={e=>setFocus(e.target.value)} onBlur={()=>saveInt({focus})}/>
-          <div style={s.sectionLabel}>✅ Weekly Goals</div>
-          {localGoals.map((g,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:`1px solid ${c.borderSoft}`}}>
-              <div style={s.checkbox(g.done)} onClick={()=>{const u=localGoals.map((x,j)=>j===i?{...x,done:!x.done}:x);setLocalGoals(u);saveInt({goals:u});}}>
-                {g.done&&<span style={{fontSize:12,color:"#fff",fontWeight:900}}>✓</span>}
-              </div>
-              <span style={{flex:1,fontSize:13,color:g.done?c.dim:c.offwhite,textDecoration:g.done?"line-through":"none"}}>{g.text}</span>
-              <button onClick={()=>{const u=localGoals.filter((_,j)=>j!==i);setLocalGoals(u);saveInt({goals:u});}} style={{background:"transparent",border:"none",color:c.muted,cursor:"pointer",fontSize:16}}>×</button>
-            </div>
-          ))}
-          <div style={{display:"flex",gap:8,marginTop:10}}>
-            <input style={{...s.input,flex:1}} placeholder="Add a weekly goal..." value={newGoal} onChange={e=>setNewGoal(e.target.value)}
-              onKeyDown={e=>{if(e.key==="Enter"&&newGoal.trim()){const u=[...localGoals,{text:newGoal.trim(),done:false}];setLocalGoals(u);setNewGoal("");saveInt({goals:u});}}}/>
-            <button style={s.pinkBtn} onClick={()=>{if(newGoal.trim()){const u=[...localGoals,{text:newGoal.trim(),done:false}];setLocalGoals(u);setNewGoal("");saveInt({goals:u});}}}>Add</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── WEEKLY REPORT ──
-  function WeeklyReportView(){
-    const weeks=Math.ceil(totalDays/7);
-    const[selectedWeek,setSelectedWeek]=useState(Math.ceil(currentDay/7));
-    const report=getWeekReport(selectedWeek);
-    const intention=weeklyIntentions[getWeekKey((selectedWeek-1)*7+1)]||{};
-    return(
-      <div className="fade">
-        <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:4}}>
-          {Array.from({length:weeks},(_,i)=>i+1).map(w=>(<button key={w} style={{...s.navBtn(w===selectedWeek),flexShrink:0,padding:"6px 12px"}} onClick={()=>setSelectedWeek(w)}>W{w}</button>))}
-        </div>
-        {!report?(<div style={{...s.card(),textAlign:"center",padding:32,color:c.muted}}>No data yet 🌸</div>):(
-          <>
-            <div style={s.card(true)}>
-              <div style={s.bigTitle}>📊 Week {selectedWeek} Report</div>
-              <div style={s.statRow}>
-                <div style={s.statBox}><div style={s.statNum}>{report.avg}%</div><div style={s.statLabel}>Avg</div></div>
-                <div style={s.statBox}><div style={{...s.statNum,color:"#4ade80"}}>D{report.best}</div><div style={s.statLabel}>Best 🔥</div></div>
-                <div style={s.statBox}><div style={{...s.statNum,color:c.danger}}>D{report.worst}</div><div style={s.statLabel}>Tough 💪</div></div>
-              </div>
-              {report.days.map(d=>{const pct=getDayPct(d);const rest=pct===-1;const mood=getDayData(d).mood;
-                return(<div key={d} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                  <span style={{fontSize:11,color:c.muted,width:28,flexShrink:0}}>D{d}</span>
-                  {rest?(<div style={{flex:1,height:20,borderRadius:4,background:`${c.rest}33`,display:"flex",alignItems:"center",paddingLeft:8}}><span style={{fontSize:10,color:c.rest}}>😴 Rest</span></div>):(
-                    <><div style={{...s.progressTrack,flex:1,height:20,borderRadius:6}}><div style={{...s.progressFill(pct),height:"100%",borderRadius:6,display:"flex",alignItems:"center",paddingLeft:6}}>{pct>20&&<span style={{fontSize:10,color:"#fff",fontWeight:700}}>{pct}%</span>}</div></div>{mood&&<span style={{fontSize:16}}>{mood}</span>}</>
-                  )}
-                </div>);})}
-            </div>
-            {intention.word&&(<div style={{...s.card(),textAlign:"center"}}><div style={s.sectionLabel}>🌟 Word of the Week</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:28,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{intention.word}</div></div>)}
-          </>
-        )}
-      </div>
-    );
-  }
-
-  // ── GOALS ──
-  function GoalsView(){
-    const[showAdd,setShowAdd]=useState(false);
-    const[newGoal,setNewGoal]=useState({title:"",type:"bar",target:100,current:0,unit:"",isMoney:false});
-    const[selectedId,setSelectedId]=useState(null);
-    const[editCurrent,setEditCurrent]=useState("");
-
-    function CircleProgress({pct,size=80,color}){
-      const r=size/2-6;const circ=2*Math.PI*r;const offset=circ-(pct/100)*circ;
-      return(<svg width={size} height={size} style={{transform:"rotate(-90deg)"}}>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={c.border} strokeWidth={5}/>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color||c.pink} strokeWidth={5} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" style={{transition:"stroke-dashoffset .6s"}}/>
-        <text x={size/2} y={size/2} textAnchor="middle" dominantBaseline="middle" style={{transform:`rotate(90deg) translate(0,-${size/2}px)`,transformOrigin:`${size/2}px ${size/2}px`}} fill={color||c.pink} fontSize={size*0.18} fontFamily="'Nunito',sans-serif" fontWeight="700">{pct}%</text>
-      </svg>);
-    }
-
-    return(
-      <div className="fade">
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:22,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>My Goals 🎯</div>
-          <button style={s.pinkBtn} onClick={()=>setShowAdd(!showAdd)}>+ Add Goal</button>
-        </div>
-
-        {showAdd&&(
-          <div style={s.card(true)}>
-            <div style={s.sectionLabel}>New Goal ✨</div>
-            <input style={{...s.input,marginBottom:10}} placeholder="Goal title..." value={newGoal.title} onChange={e=>setNewGoal({...newGoal,title:e.target.value})}/>
-            <div style={{fontSize:11,color:c.muted,marginBottom:6}}>Tracker type:</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>
-              {[["bar","📊 Bar"],["circle","⭕ Circle"],["none","✅ Simple"]].map(([type,label])=>(
-                <button key={type} style={{...s.tab(newGoal.type===type),fontSize:11}} onClick={()=>setNewGoal({...newGoal,type})}>{label}</button>
-              ))}
-            </div>
-            {newGoal.type!=="none"&&(
-              <div style={{display:"flex",gap:8,marginBottom:10}}>
-                <div style={{flex:1}}><div style={{fontSize:10,color:c.muted,marginBottom:4}}>Current</div><input type="number" style={s.input} value={newGoal.current} onChange={e=>setNewGoal({...newGoal,current:e.target.value})}/></div>
-                <div style={{flex:1}}><div style={{fontSize:10,color:c.muted,marginBottom:4}}>Target</div><input type="number" style={s.input} value={newGoal.target} onChange={e=>setNewGoal({...newGoal,target:e.target.value})}/></div>
-                <div style={{flex:1}}><div style={{fontSize:10,color:c.muted,marginBottom:4}}>Unit</div><input style={s.input} placeholder="$, lbs..." value={newGoal.unit} onChange={e=>setNewGoal({...newGoal,unit:e.target.value})}/></div>
-              </div>
-            )}
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-              <div style={{...s.checkbox(newGoal.isMoney),cursor:"pointer"}} onClick={()=>setNewGoal({...newGoal,isMoney:!newGoal.isMoney})}>{newGoal.isMoney&&<span style={{fontSize:12,color:"#fff",fontWeight:900}}>✓</span>}</div>
-              <span style={{fontSize:13,color:c.offwhite}}>💰 Money goal</span>
-            </div>
-            <div style={{display:"flex",gap:8}}>
-              <button style={s.pinkBtn} onClick={()=>{if(!newGoal.title.trim())return;const g={...newGoal,id:Date.now(),current:Number(newGoal.current)||0,target:Number(newGoal.target)||100};setGoalsS([...goals,g]);setNewGoal({title:"",type:"bar",target:100,current:0,unit:"",isMoney:false});setShowAdd(false);}}>Save 🎯</button>
-              <button style={s.ghostBtn} onClick={()=>setShowAdd(false)}>Cancel</button>
-            </div>
-          </div>
-        )}
-
-        {goals.length===0&&!showAdd&&(<div style={{...s.card(),textAlign:"center",padding:32,color:c.muted}}>No goals yet — tap + Add Goal! 🎯</div>)}
-
-        {goals.map(g=>{
-          const pct=g.type==="none"?0:Math.min(100,Math.round((g.current/g.target)*100))||0;
-          const isSelected=selectedId===g.id;
-          const moneyFmt=(n)=>g.isMoney?`$${Number(n).toLocaleString()}`:n+(g.unit||"");
-          return(
-            <div key={g.id} style={{...s.card(g.isMoney),marginBottom:10,cursor:"pointer"}} onClick={()=>{setSelectedId(isSelected?null:g.id);setEditCurrent(String(g.current));}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <div style={{flex:1,paddingRight:8}}>
-                  <div style={{fontSize:15,fontWeight:700,color:g.done?c.dim:c.offwhite,marginBottom:2,textDecoration:g.done?"line-through":"none"}}>{g.isMoney?"💰":""} {g.title}</div>
-                  {g.type!=="none"&&<div style={{fontSize:11,color:c.muted}}>{moneyFmt(g.current)} / {moneyFmt(g.target)}</div>}
-                </div>
-                {g.type==="none"?(
-                  <div style={s.checkbox(g.done)} onClick={e=>{e.stopPropagation();setGoalsS(goals.map(x=>x.id===g.id?{...x,done:!x.done}:x));}}>
-                    {g.done&&<span style={{fontSize:13,color:"#fff",fontWeight:900}}>✓</span>}
-                  </div>
-                ):g.type==="circle"?(
-                  <CircleProgress pct={pct} size={70} color={g.isMoney?"#fbbf24":c.pink}/>
-                ):(
-                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,color:g.isMoney?"#fbbf24":c.pink}}>{pct}%</div>
-                )}
-              </div>
-              {g.type==="bar"&&(<div style={{...s.progressTrack,marginTop:10}}><div style={{...s.progressFill(pct),background:g.isMoney?`linear-gradient(90deg,#fbbf24,#f59e0b)`:undefined}}/></div>)}
-              {isSelected&&(
-                <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${c.border}`}} onClick={e=>e.stopPropagation()}>
-                  {g.type!=="none"&&(
-                    <>
-                      <div style={{fontSize:11,color:c.muted,marginBottom:6}}>Update progress</div>
-                      <input type="number" style={{...s.input,marginBottom:8}} value={editCurrent} onChange={e=>setEditCurrent(e.target.value)}
-                        onBlur={()=>setGoalsS(goals.map(x=>x.id===g.id?{...x,current:Number(editCurrent)}:x))}/>
-                    </>
-                  )}
-                  <button style={{...s.ghostBtn,color:c.danger,borderColor:c.danger,fontSize:12,padding:"6px 14px"}}
-                    onClick={()=>{setGoalsS(goals.filter(x=>x.id!==g.id));setSelectedId(null);}}>Delete Goal</button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-
-  // ── VISION + BINGO ──
-  function VisionBoardView(){
-    const[tab,setTab]=useState("board");
-    const completedRows=checkBingoRows(bingoCard);
-    function toggleBingo(i){const updated=bingoCard.map((cell,idx)=>idx===i?{...cell,done:!cell.done}:cell);setBingoCardS(updated);}
-    function setBingoText(i,text){const updated=bingoCard.map((cell,idx)=>idx===i?{...cell,text}:cell);setBingoCardS(updated);}
-    return(
-      <div className="fade">
-        <div style={{display:"flex",gap:6,marginBottom:12}}>
-          <button style={s.tab(tab==="board")} onClick={()=>setTab("board")}>🎯 Vision Board</button>
-          <button style={s.tab(tab==="bingo")} onClick={()=>setTab("bingo")}>⭐️ Bingo</button>
-        </div>
-        {tab==="board"&&<VisionBoard wishlist={wishlist} setWishlistS={setWishlistS} c={c} s={s} grad={grad}/>}
-        {tab==="bingo"&&(
-          <div style={s.card(true)}>
-            <div style={s.bigTitle}>⭐️ Bingo Card</div>
-            {completedRows.length>0&&(<div style={{padding:"8px 12px",background:`${c.pink}22`,border:`1px solid ${c.pink}44`,borderRadius:10,marginBottom:12,textAlign:"center",fontSize:13,color:c.pink,fontWeight:700}}>🎉 {completedRows.length} Bingo{completedRows.length>1?"s":""} Completed! ⭐️</div>)}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:4}}>
-              {bingoCard.map((cell,i)=>{const row=Math.floor(i/5);const isRowComplete=completedRows.includes(row);return(
-                <div key={i} style={{position:"relative",aspectRatio:"1",borderRadius:8,background:isRowComplete?`linear-gradient(135deg,${c.pink}33,${c.purple}33)`:cell.done?`${c.pink}22`:c.surface,border:`1px solid ${isRowComplete?c.pink:cell.done?c.pink:c.border}`,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",boxShadow:isRowComplete?`0 0 8px ${c.pink}44`:"none",cursor:"pointer"}} onClick={()=>toggleBingo(i)}>
-                  {isRowComplete?(<span className="star-pop" style={{fontSize:22,position:"absolute",zIndex:2}}>⭐️</span>):cell.done?(<span style={{fontSize:18,position:"absolute",zIndex:2}}>✅</span>):null}
-                  <span style={{fontSize:7,color:c.muted,textAlign:"center",padding:2,lineHeight:1.2,opacity:isRowComplete||cell.done?0.3:1,zIndex:1,overflow:"hidden",wordBreak:"break-word"}}>{cell.text||`#${i+1}`}</span>
-                </div>
-              );})}
-            </div>
-            <div style={{marginTop:14}}>
-              <div style={s.sectionLabel}>✏️ Edit Squares</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-                {bingoCard.map((cell,i)=>(<div key={i} style={{display:"flex",gap:4,alignItems:"center"}}>
-                  <span style={{fontSize:10,color:c.muted,width:16,flexShrink:0}}>#{i+1}</span>
-                  <input style={{...s.input,fontSize:11,padding:"5px 8px"}} placeholder={`Square ${i+1}`} value={cell.text} onChange={e=>setBingoText(i,e.target.value)}/>
-                </div>))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ── WISHLIST ──
-  function WishlistView(){
-    const[showAdd,setShowAdd]=useState(false);
-    const[selectedItem,setSelectedItem]=useState(null);
-    const[editingItem,setEditingItem]=useState(null);
-    const[newItem,setNewItem]=useState({title:"",category:"Fashion",link:"",social:"",notes:"",imgSrc:""});
-    const[newCategory,setNewCategory]=useState("");
-    const[filterCat,setFilterCat]=useState("All");
-    const wishItems=wishlist.filter(w=>w.category!=="Vision Board");
-    const categories=["All",...new Set(wishItems.map(w=>w.category))];
-
-    async function handleImg(e,isEdit=false){
-      const file=e.target.files[0];if(!file)return;
-      const b64=await fileToBase64(file);
-      if(isEdit)setEditingItem(p=>({...p,imgSrc:b64}));
-      else setNewItem(p=>({...p,imgSrc:b64}));
-    }
-
-    function addItem(){
-      if(!newItem.title.trim())return;
-      setWishlistS([...wishlist,{...newItem,id:Date.now(),type:"wish"}]);
-      setNewItem({title:"",category:newItem.category,link:"",social:"",notes:"",imgSrc:""});
-      setShowAdd(false);
-    }
-
-    function saveEdit(){
-      setWishlistS(wishlist.map(w=>w.id===editingItem.id?editingItem:w));
-      setEditingItem(null);setSelectedItem(null);
-    }
-
-    const filtered=filterCat==="All"?wishItems:wishItems.filter(w=>w.category===filterCat);
-
-    return(
-      <div className="fade">
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:22,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Wishlist 🛍️</div>
-          <button style={s.pinkBtn} onClick={()=>setShowAdd(!showAdd)}>+ Add</button>
-        </div>
-
-        {showAdd&&(
-          <div style={s.card(true)}>
-            <div style={s.sectionLabel}>New Item ✨</div>
-            <div style={{position:"relative",borderRadius:12,overflow:"hidden",marginBottom:10,background:c.surface,border:`2px dashed ${c.border}`,height:120,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
-              {newItem.imgSrc?(<img src={newItem.imgSrc} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="item"/>):(<div style={{textAlign:"center"}}><div style={{fontSize:24}}>📷</div><div style={{fontSize:11,color:c.muted,marginTop:4}}>Add photo</div></div>)}
-              <input type="file" accept="image/*" onChange={e=>handleImg(e,false)} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%"}}/>
-            </div>
-            <input style={{...s.input,marginBottom:8}} placeholder="Item name..." value={newItem.title} onChange={e=>setNewItem({...newItem,title:e.target.value})}/>
-            <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap"}}>
-              {["Fashion","Beauty","Home","Tech","Travel","Food","Other"].map(cat=>(<button key={cat} style={{...s.navBtn(newItem.category===cat),padding:"4px 10px",fontSize:11}} onClick={()=>setNewItem({...newItem,category:cat})}>{cat}</button>))}
-            </div>
-            <div style={{display:"flex",gap:6,marginBottom:8}}>
-              <input style={{...s.input,flex:1,fontSize:12}} placeholder="Custom category..." value={newCategory} onChange={e=>setNewCategory(e.target.value)}/>
-              <button style={{...s.ghostBtn,padding:"8px 12px",fontSize:12}} onClick={()=>{if(newCategory.trim()){setNewItem({...newItem,category:newCategory.trim()});setNewCategory("");}}}>Set</button>
-            </div>
-            <input style={{...s.input,marginBottom:8}} placeholder="Website URL (optional)" value={newItem.link} onChange={e=>setNewItem({...newItem,link:e.target.value})}/>
-            <input style={{...s.input,marginBottom:8}} placeholder="Social media @ (optional)" value={newItem.social} onChange={e=>setNewItem({...newItem,social:e.target.value})}/>
-            <textarea style={{...s.textarea,minHeight:60,marginBottom:10}} placeholder="Notes..." value={newItem.notes} onChange={e=>setNewItem({...newItem,notes:e.target.value})}/>
-            <div style={{display:"flex",gap:8}}>
-              <button style={s.pinkBtn} onClick={addItem}>Save 🛍️</button>
-              <button style={s.ghostBtn} onClick={()=>setShowAdd(false)}>Cancel</button>
-            </div>
-          </div>
-        )}
-
-        {categories.length>1&&(
-          <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:12,paddingBottom:4}}>
-            {categories.map(cat=>(<button key={cat} style={{...s.navBtn(filterCat===cat),flexShrink:0,fontSize:11,padding:"5px 12px"}} onClick={()=>setFilterCat(cat)}>{cat}</button>))}
-          </div>
-        )}
-
-        {filtered.length===0&&(<div style={{...s.card(),textAlign:"center",padding:32,color:c.muted}}>No items yet 🛍️</div>)}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          {filtered.map(item=>(
-            <div key={item.id} style={{position:"relative",borderRadius:14,overflow:"hidden",cursor:"pointer",background:c.surface,border:`1px solid ${c.border}`,transition:"transform .15s"}}
-              onClick={()=>setSelectedItem(selectedItem?.id===item.id?null:item)}>
-              {item.imgSrc?(<img src={item.imgSrc} style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}} alt={item.title}/>):(<div style={{aspectRatio:"1",background:`linear-gradient(135deg,${c.pink}22,${c.purple}22)`,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:32}}>🛍️</span></div>)}
-              <div style={{padding:"8px 10px"}}><div style={{fontSize:12,fontWeight:700,color:c.offwhite,marginBottom:2}}>{item.title}</div><div style={{fontSize:10,color:c.pink}}>{item.category}</div></div>
-            </div>
-          ))}
-        </div>
-
-        {/* Item detail / edit modal */}
-        {selectedItem&&!editingItem&&(
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setSelectedItem(null)}>
-            <div style={{...s.card(),width:"100%",maxWidth:520,margin:"0 auto",borderRadius:"20px 20px 0 0",maxHeight:"85vh",overflowY:"auto",paddingBottom:32}} onClick={e=>e.stopPropagation()}>
-              {selectedItem.imgSrc&&<img src={selectedItem.imgSrc} style={{width:"100%",borderRadius:12,marginBottom:12}} alt={selectedItem.title}/>}
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:c.offwhite,marginBottom:4}}>{selectedItem.title}</div>
-              <div style={{fontSize:11,color:c.pink,marginBottom:12}}>{selectedItem.category}</div>
-              {selectedItem.link&&(<a href={selectedItem.link} target="_blank" rel="noreferrer" style={{display:"block",padding:"10px 14px",background:`${c.pink}22`,border:`1px solid ${c.pink}44`,borderRadius:10,color:c.pink,fontSize:12,marginBottom:8,textDecoration:"none"}}>🔗 Visit Website</a>)}
-              {selectedItem.social&&(<div style={{padding:"10px 14px",background:`${c.purple}22`,border:`1px solid ${c.purple}44`,borderRadius:10,color:c.purple,fontSize:12,marginBottom:8}}>📱 {selectedItem.social}</div>)}
-              {selectedItem.notes&&<div style={{fontSize:12,color:c.muted,lineHeight:1.6,marginBottom:12}}>{selectedItem.notes}</div>}
-              <div style={{display:"flex",gap:8}}>
-                <button style={{...s.pinkBtn,flex:1}} onClick={()=>setEditingItem({...selectedItem})}>✏️ Edit</button>
-                <button style={{...s.ghostBtn,flex:1}} onClick={()=>setSelectedItem(null)}>Close</button>
-                <button style={{...s.ghostBtn,color:c.danger,borderColor:c.danger}} onClick={()=>{setWishlistS(wishlist.filter(w=>w.id!==selectedItem.id));setSelectedItem(null);}}>🗑️</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Edit modal */}
-        {editingItem&&(
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={()=>setEditingItem(null)}>
-            <div style={{...s.card(),width:"100%",maxWidth:520,margin:"0 auto",borderRadius:"20px 20px 0 0",maxHeight:"90vh",overflowY:"auto",paddingBottom:32}} onClick={e=>e.stopPropagation()}>
-              <div style={s.bigTitle}>✏️ Edit Item</div>
-              <div style={{position:"relative",borderRadius:12,overflow:"hidden",marginBottom:10,background:c.surface,border:`2px dashed ${c.border}`,height:120,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
-                {editingItem.imgSrc?(<img src={editingItem.imgSrc} style={{width:"100%",height:"100%",objectFit:"cover"}} alt="edit"/>):(<div style={{textAlign:"center"}}><div style={{fontSize:24}}>📷</div><div style={{fontSize:11,color:c.muted}}>Change photo</div></div>)}
-                <input type="file" accept="image/*" onChange={e=>handleImg(e,true)} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%"}}/>
-              </div>
-              <input style={{...s.input,marginBottom:8}} value={editingItem.title} onChange={e=>setEditingItem({...editingItem,title:e.target.value})}/>
-              <input style={{...s.input,marginBottom:8}} placeholder="Website URL" value={editingItem.link||""} onChange={e=>setEditingItem({...editingItem,link:e.target.value})}/>
-              <input style={{...s.input,marginBottom:8}} placeholder="Social @" value={editingItem.social||""} onChange={e=>setEditingItem({...editingItem,social:e.target.value})}/>
-              <textarea style={{...s.textarea,minHeight:60,marginBottom:10}} value={editingItem.notes||""} onChange={e=>setEditingItem({...editingItem,notes:e.target.value})}/>
-              <div style={{display:"flex",gap:8}}>
-                <button style={s.pinkBtn} onClick={saveEdit}>Save Changes ✓</button>
-                <button style={s.ghostBtn} onClick={()=>setEditingItem(null)}>Cancel</button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ── PROGRESS PHOTOS ──
-  function ProgressPhotosView(){
-    const[phase,setPhase]=useState("before");
-    const[editingQ,setEditingQ]=useState(false);
-    const[localQ,setLocalQ]=useState([...photoQuestions]);
-    const photos=progressPhotos||{before:null,after:null,beforeAnswers:{},afterAnswers:{}};
-    const answers=phase==="before"?(photos.beforeAnswers||{}):(photos.afterAnswers||{});
-    async function handlePhoto(e){const file=e.target.files[0];if(!file)return;const b64=await fileToBase64(file);setProgressPhotosS({...photos,[phase]:b64});}
-    function setAnswer(i,val){const key=phase==="before"?"beforeAnswers":"afterAnswers";setProgressPhotosS({...photos,[key]:{...answers,[i]:val}});}
-    return(
-      <div className="fade">
-        <div style={s.card(true)}>
-          <div style={s.bigTitle}>📸 Progress Photos</div>
-          <div style={{display:"flex",gap:8,marginBottom:16}}>
-            <button style={{...s.tab(phase==="before"),flex:1}} onClick={()=>setPhase("before")}>Before 🌱</button>
-            <button style={{...s.tab(phase==="after"),flex:1}} onClick={()=>setPhase("after")}>After 🦋</button>
-          </div>
-          <div style={{position:"relative",borderRadius:16,overflow:"hidden",marginBottom:14,background:c.surface,border:`2px dashed ${c.border}`,minHeight:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            {photos[phase]?(<img src={photos[phase]} style={{width:"100%",borderRadius:14,display:"block"}} alt={phase}/>):(<div style={{textAlign:"center",padding:24}}><div style={{fontSize:36,marginBottom:8}}>📷</div><div style={{fontSize:13,color:c.muted}}>Tap to add your {phase} photo</div></div>)}
-            <input type="file" accept="image/*" onChange={handlePhoto} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%"}}/>
-          </div>
-          <div style={s.sectionLabel}>✍️ {phase==="before"?"Before":"After"} Questions</div>
-          {photoQuestions.map((q,i)=>(<div key={i} style={{marginBottom:12}}>
-            <div style={{fontSize:12,color:c.pink,fontWeight:700,marginBottom:4}}>{q}</div>
-            <textarea style={{...s.textarea,minHeight:60,fontSize:12}} placeholder="Write your answer..." value={answers[i]||""} onChange={e=>setAnswer(i,e.target.value)}/>
-          </div>))}
-          {editingQ?(<div style={{marginTop:8}}>
-            {localQ.map((q,i)=>(<div key={i} style={{display:"flex",gap:6,marginBottom:8}}>
-              <input style={{...s.input,flex:1}} value={q} onChange={e=>{const u=[...localQ];u[i]=e.target.value;setLocalQ(u);}}/>
-              <button onClick={()=>setLocalQ(localQ.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:c.danger,cursor:"pointer",fontSize:18}}>×</button>
-            </div>))}
-            <div style={{display:"flex",gap:8,marginTop:8}}>
-              <button style={s.pinkBtn} onClick={()=>{setPhotoQuestionsS(localQ);setEditingQ(false);}}>Save</button>
-              <button style={s.ghostBtn} onClick={()=>setEditingQ(false)}>Cancel</button>
-            </div>
-            <button style={{...s.ghostBtn,marginTop:8,width:"100%"}} onClick={()=>setLocalQ([...localQ,""])}>+ Add Question</button>
-          </div>):(<button style={{...s.ghostBtn,marginTop:8,width:"100%",fontSize:12}} onClick={()=>setEditingQ(true)}>✏️ Edit Questions</button>)}
-        </div>
-        {photos.before&&photos.after&&(<div style={s.card()}>
-          <div style={s.sectionLabel}>✨ Your Transformation</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <div><div style={{fontSize:10,color:c.muted,textAlign:"center",marginBottom:4}}>BEFORE 🌱</div><img src={photos.before} style={{width:"100%",borderRadius:12}} alt="before"/></div>
-            <div><div style={{fontSize:10,color:c.muted,textAlign:"center",marginBottom:4}}>AFTER 🦋</div><img src={photos.after} style={{width:"100%",borderRadius:12}} alt="after"/></div>
-          </div>
-        </div>)}
-      </div>
-    );
-  }
-
-  // ── SETTINGS ──
-  function SettingsView(){
-    const[localDays,setLocalDays]=useState(totalDays);
-    const[localStart,setLocalStart]=useState(startDate);
-    return(
-      <div className="fade">
-        <div style={s.card()}>
-          <div style={s.bigTitle}>🎨 Color Studio</div>
-          <div style={{height:12,borderRadius:10,marginBottom:20,overflow:"hidden",background:`linear-gradient(90deg,${c.pink},${c.purple},${adj(c.pink,15)},${c.purple})`,boxShadow:`0 0 20px ${c.pink}55`}}/>
-          <ColorPicker label="✨ Accent" hint="buttons & highlights" value={accent} onChange={setAccentS} c={c}/>
-          <ColorPicker label="💜 Secondary" hint="gradients" value={secondary} onChange={setSecondaryS} c={c}/>
-          <ColorPicker label="🌙 Background" hint="app background" value={bgColor} onChange={setBgColorS} c={c}/>
-          <div style={{...s.sectionLabel,marginTop:4}}>Quick Presets</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            {PRESETS.map(p=>{const active=accent===p.accent&&secondary===p.secondary;return(
-              <button key={p.name} onClick={()=>{setAccentS(p.accent);setSecondaryS(p.secondary);setBgColorS(p.bg);}}
-                style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:12,border:`1px solid ${active?p.accent:c.border}`,background:active?`${p.accent}22`:c.surface,cursor:"pointer",fontFamily:"'Nunito',sans-serif",transition:"all .2s"}}>
-                <div style={{display:"flex",gap:3}}>{[p.accent,p.secondary,p.bg].map((col,i)=>(<div key={i} style={{width:13,height:13,borderRadius:"50%",background:col,border:i===2?`1px solid ${c.border}`:"none"}}/>))}</div>
-                <span style={{fontSize:11,color:c.offwhite,fontWeight:600}}>{p.name}</span>
-              </button>
-            );})}
-          </div>
-        </div>
-        <div style={s.card()}>
-          <div style={s.bigTitle}>My Habits 🌸</div>
-          {habits.map((h,i)=>(<div key={h.id} style={{...s.habitRow,cursor:"default",borderBottom:i===habits.length-1?"none":`1px solid ${c.borderSoft}`}}>
-            <span style={{flex:1,fontSize:13,color:c.offwhite}}>{h.icon} {h.label}</span>
-            <button style={{background:"transparent",border:"none",color:c.muted,cursor:"pointer",fontSize:18}} onClick={()=>setHabitsS(p=>p.filter(x=>x.id!==h.id))}>×</button>
-          </div>))}
-          <div style={{display:"flex",gap:8,marginTop:14}}>
-            <input style={{...s.input,flex:1}} placeholder="Add a new habit..." value={newHabit} onChange={e=>setNewHabit(e.target.value)}
-              onKeyDown={e=>{if(e.key==="Enter"&&newHabit.trim()){setHabitsS(p=>[...p,{id:Date.now(),label:newHabit.trim(),icon:"✨"}]);setNewHabit("");}}}/>
-            <button style={s.pinkBtn} onClick={()=>{if(newHabit.trim()){setHabitsS(p=>[...p,{id:Date.now(),label:newHabit.trim(),icon:"✨"}]);setNewHabit("");}}}>Add</button>
-          </div>
-        </div>
-        <div style={s.card()}>
-          <div style={s.bigTitle}>Challenge Setup ⚙️</div>
-          <div style={{marginBottom:14}}><div style={{...s.sectionLabel,marginBottom:6}}>Total Days</div><input type="number" style={s.input} value={localDays} min={1} max={365} onChange={e=>setLocalDays(Number(e.target.value))} onBlur={()=>setTotalDaysS(localDays)}/></div>
-          <div><div style={{...s.sectionLabel,marginBottom:6}}>Start Date</div><input type="date" style={s.input} value={localStart} onChange={e=>setLocalStart(e.target.value)} onBlur={()=>setStartDateS(localStart)}/></div>
-        </div>
-        <div style={s.card()}>
-          <div style={s.bigTitle}>🔔 Notifications</div>
-          {["Open your iPhone Reminders app","Tap + to create a new reminder","Name it '75 Hard Check-in 🌸'","Set time to 8pm daily","Set repeat to Every Day","Bookmark your Vercel URL for quick access"].map((step,i)=>(
-            <div key={i} style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"}}>
-              <div style={{width:20,height:20,borderRadius:"50%",background:gradBtn,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:10,color:"#fff",fontWeight:700}}>{i+1}</div>
-              <span style={{fontSize:12,color:c.offwhite,lineHeight:1.6}}>{step}</span>
-            </div>
-          ))}
-        </div>
-        <div style={s.card()}>
-          <div style={s.bigTitle}>Data 🗂️</div>
-          <button style={{...s.ghostBtn,color:c.danger,borderColor:c.danger,width:"100%"}} onClick={()=>{if(window.confirm("Reset all progress? 💔")){const e={};setDayData(e);scheduleSave({dayData:e});}}}>Reset All Progress 🗑️</button>
-        </div>
-      </div>
-    );
-  }
-
   if(syncStatus==="loading"){
     return(<><style>{css}</style>
       <div style={{...s.root,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh"}}>
@@ -1260,16 +1343,37 @@ export default function App() {
           </div>)}
         </div>
         <div style={s.content}>
-          {view==="overview"&&<OverviewView/>}
-          {isDayView&&<DayView key={dayNum} day={dayNum}/>}
-          {view==="affirmations"&&<AffirmationsView/>}
-          {view==="intentions"&&<WeeklyIntentionView/>}
-          {view==="report"&&<WeeklyReportView/>}
-          {view==="goals"&&<GoalsView/>}
-          {view==="vision"&&<VisionBoardView/>}
-          {view==="wishlist"&&<WishlistView/>}
-          {view==="photos"&&<ProgressPhotosView/>}
-          {view==="settings"&&<SettingsView/>}
+          {view==="overview"&&<OverviewView
+            mission={mission} setMissionS={setMissionS}
+            editingMission={editingMission} setEditingMission={setEditingMission}
+            currentDay={currentDay} streak={streak} completedDays={completedDays} totalDays={totalDays}
+            getDayData={getDayData} updateDayData={updateDayData} getDayPct={getDayPct}
+            getHabitStreak={getHabitStreak} habits={habits} setView={setView} c={c} s={s} grad={grad}
+          />}
+          {isDayView&&<DayView key={dayNum}
+            day={dayNum} currentDay={currentDay} totalDays={totalDays}
+            getDayData={getDayData} getDayPct={getDayPct}
+            toggleHabit={toggleHabit} toggleRestDay={toggleRestDay} updateDayData={updateDayData}
+            habits={habits} dailyPhotos={dailyPhotos} setDailyPhotosS={setDailyPhotosS}
+            setView={setView} c={c} s={s} grad={grad}
+          />}
+          {view==="affirmations"&&<AffirmationsView affirmations={affirmations} setAffirmationsS={setAffirmationsS} c={c} s={s} grad={grad}/>}
+          {view==="intentions"&&<WeeklyIntentionView currentDay={currentDay} totalDays={totalDays} weeklyIntentions={weeklyIntentions} setWeeklyIntentionsS={setWeeklyIntentionsS} c={c} s={s}/>}
+          {view==="report"&&<WeeklyReportView totalDays={totalDays} currentDay={currentDay} weeklyIntentions={weeklyIntentions} getDayPct={getDayPct} getDayData={getDayData} c={c} s={s} grad={grad}/>}
+          {view==="goals"&&<GoalsView goals={goals} setGoalsS={setGoalsS} c={c} s={s} grad={grad}/>}
+          {view==="vision"&&<VisionBoardView wishlist={wishlist} setWishlistS={setWishlistS} bingoCard={bingoCard} setBingoCardS={setBingoCardS} c={c} s={s} grad={grad}/>}
+          {view==="wishlist"&&<WishlistView wishlist={wishlist} setWishlistS={setWishlistS} c={c} s={s} grad={grad}/>}
+          {view==="photos"&&<ProgressPhotosView progressPhotos={progressPhotos} setProgressPhotosS={setProgressPhotosS} photoQuestions={photoQuestions} setPhotoQuestionsS={setPhotoQuestionsS} c={c} s={s}/>}
+          {view==="settings"&&<SettingsView
+            habits={habits} setHabitsS={setHabitsS}
+            totalDays={totalDays} setTotalDaysS={setTotalDaysS}
+            startDate={startDate} setStartDateS={setStartDateS}
+            accent={accent} setAccentS={setAccentS}
+            secondary={secondary} setSecondaryS={setSecondaryS}
+            bgColor={bgColor} setBgColorS={setBgColorS}
+            dayData={dayData} setDayData={setDayData} scheduleSave={scheduleSave}
+            c={c} s={s} grad={grad} gradBtn={gradBtn}
+          />}
         </div>
         <div style={s.bottomNav}>
           {navItems.map(n=>(<button key={n.id} style={s.bottomBtn(view===n.id)} onClick={()=>setView(n.id)}>
