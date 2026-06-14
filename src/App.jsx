@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = "https://etiawaxyofraaqtpjypp.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0aWF3YXh5b2ZyYWFxdHBqeXBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMjYwMjMsImV4cCI6MjA5NTYwMjAyM30.NQVAlA1yUlL1xyjdmLPKZ5iOgOuA0X5XWFhmXT2gMfo";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+const LOCAL_KEY = "75hard_backup";
 
 const DEFAULT_HABITS = [
   { id: 1, label: "45 min workout", icon: "🏋️‍♀️", daysPerWeek: 7 },
@@ -1118,33 +1119,52 @@ export default function App() {
   },[mission,habits,dayData,totalDays,startDate,accent,secondary,bgColor,affirmations,weeklyIntentions,goals,bingoCard,wishlist,progressPhotos,photoQuestions,dailyPhotos]);
 
   useEffect(()=>{
-    async function load(){
-      try{
-        const{data,error}=await supabase.from("tracker_data").select("*").eq("id","main").single();
-        if(error)throw error;
-        if(data){
-          if(data.mission)setMission(data.mission);
-          if(data.habits)setHabits(data.habits.map(h=>({...h,daysPerWeek:h.daysPerWeek||7})));
-          if(data.day_data)setDayData(data.day_data);
-          if(data.total_days)setTotalDays(data.total_days);
-          if(data.start_date)setStartDate(data.start_date);
-          if(data.accent)setAccent(data.accent);
-          if(data.secondary_color)setSecondary(data.secondary_color);
-          if(data.bg_color)setBgColor(data.bg_color);
-          if(data.affirmations)setAffirmations(data.affirmations);
-          if(data.weekly_intentions)setWeeklyIntentions(data.weekly_intentions);
-          if(data.goals)setGoals(data.goals);
-          if(data.bingo_card&&data.bingo_card.length===25)setBingoCard(data.bingo_card);
-          if(data.wishlist)setWishlist(data.wishlist);
-          if(data.progress_photos)setProgressPhotos(data.progress_photos);
-          if(data.photo_questions&&data.photo_questions.length)setPhotoQuestions(data.photo_questions);
-          if(data.daily_photos)setDailyPhotos(data.daily_photos);
+    function applyData(data){
+      if(data.mission)setMission(data.mission);
+      if(data.habits)setHabits(data.habits.map(h=>({...h,daysPerWeek:h.daysPerWeek||7})));
+      if(data.day_data)setDayData(data.day_data);
+      if(data.total_days)setTotalDays(data.total_days);
+      if(data.start_date)setStartDate(data.start_date);
+      if(data.accent)setAccent(data.accent);
+      if(data.secondary_color)setSecondary(data.secondary_color);
+      if(data.bg_color)setBgColor(data.bg_color);
+      if(data.affirmations)setAffirmations(data.affirmations);
+      if(data.weekly_intentions)setWeeklyIntentions(data.weekly_intentions);
+      if(data.goals)setGoals(data.goals);
+      if(data.bingo_card&&data.bingo_card.length===25)setBingoCard(data.bingo_card);
+      if(data.wishlist)setWishlist(data.wishlist);
+      if(data.progress_photos)setProgressPhotos(data.progress_photos);
+      if(data.photo_questions&&data.photo_questions.length)setPhotoQuestions(data.photo_questions);
+      if(data.daily_photos)setDailyPhotos(data.daily_photos);
+    }
+    // Load from localStorage immediately so app works instantly on mobile
+    try{
+      const local=localStorage.getItem(LOCAL_KEY);
+      if(local){applyData(JSON.parse(local));setSyncStatus("synced");}
+    }catch(e){}
+    // Then fetch from Supabase with retry (handles slow wake-up on free tier)
+    async function loadFromSupabase(retries=3){
+      for(let i=0;i<retries;i++){
+        try{
+          const{data,error}=await supabase.from("tracker_data").select("*").eq("id","main").single();
+          if(error)throw error;
+          if(data){
+            applyData(data);
+            try{localStorage.setItem(LOCAL_KEY,JSON.stringify(data));}catch(e){}
+          }
+          setSyncStatus("synced");
+          isLoaded.current=true;
+          return;
+        }catch(err){
+          console.error(`Load attempt ${i+1} failed:`,err?.message||err);
+          if(i<retries-1)await new Promise(r=>setTimeout(r,2000*(i+1)));
         }
-        setSyncStatus("synced");
-      }catch{setSyncStatus("error");}
+      }
+      // All retries failed — use localStorage data, mark as error
+      setSyncStatus("error");
       isLoaded.current=true;
     }
-    load();
+    loadFromSupabase();
   },[]);
 
   useEffect(()=>{
@@ -1172,28 +1192,54 @@ export default function App() {
     return()=>supabase.removeChannel(ch);
   },[]);
 
-  function scheduleSave(overrides={}){
+  // Keep Supabase free tier awake — ping every 4 minutes
+  useEffect(()=>{
+    const ping=setInterval(async()=>{
+      try{await supabase.from("tracker_data").select("id").eq("id","main").single();}
+      catch(e){}
+    },4*60*1000);
+    return()=>clearInterval(ping);
+  },[]);
+
+  // Retry save when device comes back online
+  useEffect(()=>{
+    function handleOnline(){setSyncStatus(s=>s==="error"?"saving":s);}
+    window.addEventListener("online",handleOnline);
+    return()=>window.removeEventListener("online",handleOnline);
+  },[]);
+
+  const scheduleSave=useCallback((overrides={})=>{
     if(!isLoaded.current)return;
     setSyncStatus("saving");
     clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(async()=>{
       const st={...latestState.current,...overrides};
-      try{
-        const{error}=await supabase.from("tracker_data").upsert({
-          id:"main",mission:st.mission,habits:st.habits,day_data:st.dayData,
-          total_days:st.totalDays,start_date:st.startDate,
-          accent:st.accent,secondary_color:st.secondary,bg_color:st.bgColor,
-          affirmations:st.affirmations,weekly_intentions:st.weeklyIntentions,
-          goals:st.goals,bingo_card:st.bingoCard,wishlist:st.wishlist,
-          progress_photos:st.progressPhotos,photo_questions:st.photoQuestions,
-          daily_photos:st.dailyPhotos,
-          updated_at:new Date().toISOString(),
-        });
-        if(error)throw error;
-        setSyncStatus("synced");
-      }catch{setSyncStatus("error");}
+      const payload={
+        id:"main",mission:st.mission,habits:st.habits,day_data:st.dayData,
+        total_days:st.totalDays,start_date:st.startDate,
+        accent:st.accent,secondary_color:st.secondary,bg_color:st.bgColor,
+        affirmations:st.affirmations,weekly_intentions:st.weeklyIntentions,
+        goals:st.goals,bingo_card:st.bingoCard,wishlist:st.wishlist,
+        progress_photos:st.progressPhotos,photo_questions:st.photoQuestions,
+        daily_photos:st.dailyPhotos,
+      };
+      // Always save to localStorage first — instant, never fails
+      try{localStorage.setItem(LOCAL_KEY,JSON.stringify(payload));}catch(e){}
+      // Try Supabase with up to 3 attempts
+      for(let attempt=0;attempt<3;attempt++){
+        try{
+          const{error}=await supabase.from("tracker_data").upsert(payload);
+          if(error)throw error;
+          setSyncStatus("synced");
+          return;
+        }catch(err){
+          console.error(`Save attempt ${attempt+1} failed:`,err?.message||err);
+          if(attempt<2)await new Promise(r=>setTimeout(r,1500*(attempt+1)));
+        }
+      }
+      setSyncStatus("error");
     },700);
-  }
+  },[]);
 
   const getDayData=useCallback((day)=>dayData[getDayKey(day)]||getInitialDay(habits),[dayData,habits]);
   const updateDayData=useCallback((day,update)=>{
@@ -1386,4 +1432,4 @@ export default function App() {
       </div>
     </>
   );
-}
+}    
