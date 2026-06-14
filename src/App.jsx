@@ -1106,8 +1106,10 @@ export default function App() {
   const [progressPhotos, setProgressPhotos] = useState({before:null,after:null,beforeAnswers:{},afterAnswers:{}});
   const [photoQuestions, setPhotoQuestions] = useState(["How do you feel right now?","What is your main goal?","Current weight/measurements?","What are you most proud of?","What will you change?"]);
   const [dailyPhotos, setDailyPhotos] = useState({});
+  const [syncError, setSyncError] = useState("");
   const saveTimer = useRef(null);
   const isLoaded = useRef(false);
+  const hasLocalData = useRef(false);
   const latestState = useRef({});
 
   const c = buildColors(accent, secondary, bgColor);
@@ -1140,28 +1142,32 @@ export default function App() {
     // Load from localStorage immediately so app works instantly on mobile
     try{
       const local=localStorage.getItem(LOCAL_KEY);
-      if(local){applyData(JSON.parse(local));setSyncStatus("synced");}
+      if(local){applyData(JSON.parse(local));setSyncStatus("synced");hasLocalData.current=true;}
     }catch(e){}
     // Then fetch from Supabase with retry (handles slow wake-up on free tier)
     async function loadFromSupabase(retries=3){
       for(let i=0;i<retries;i++){
         try{
           const{data,error}=await supabase.from("tracker_data").select("*").eq("id","main").single();
+          // PGRST116 = no rows found — fresh start, not a real error
+          if(error?.code==="PGRST116"){setSyncStatus("synced");isLoaded.current=true;return;}
           if(error)throw error;
           if(data){
             applyData(data);
-            try{localStorage.setItem(LOCAL_KEY,JSON.stringify(data));}catch(e){}
+            try{localStorage.setItem(LOCAL_KEY,JSON.stringify(data));hasLocalData.current=true;}catch(e){}
           }
-          setSyncStatus("synced");
+          setSyncStatus("synced");setSyncError("");
           isLoaded.current=true;
           return;
         }catch(err){
-          console.error(`Load attempt ${i+1} failed:`,err?.message||err);
+          const msg=err?.code?`[${err.code}] ${err?.message||err}`:(err?.message||String(err));
+          console.error(`Load attempt ${i+1} failed:`,msg);
+          setSyncError(msg);
           if(i<retries-1)await new Promise(r=>setTimeout(r,2000*(i+1)));
         }
       }
-      // All retries failed — use localStorage data, mark as error
-      setSyncStatus("error");
+      // All retries failed
+      setSyncStatus(hasLocalData.current?"local":"error");
       isLoaded.current=true;
     }
     loadFromSupabase();
@@ -1203,7 +1209,7 @@ export default function App() {
 
   // Retry save when device comes back online
   useEffect(()=>{
-    function handleOnline(){setSyncStatus(s=>s==="error"?"saving":s);}
+    function handleOnline(){setSyncStatus(s=>(s==="error"||s==="local")?"saving":s);}
     window.addEventListener("online",handleOnline);
     return()=>window.removeEventListener("online",handleOnline);
   },[]);
@@ -1237,7 +1243,7 @@ export default function App() {
           if(attempt<2)await new Promise(r=>setTimeout(r,1500*(attempt+1)));
         }
       }
-      setSyncStatus("error");
+      setSyncStatus(hasLocalData.current?"local":"error");
     },700);
   },[]);
 
@@ -1346,14 +1352,25 @@ export default function App() {
   };
 
   function SyncBadge(){
-    const map={loading:["⏳","Loading",c.muted],saving:["🔄","Saving",c.purple],synced:["☁️","Synced","#4ade80"],error:["⚠️","Offline",c.danger]};
-    const[icon,label,color]=map[syncStatus];
-    return(<div style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color,background:`${color}18`,border:`1px solid ${color}44`,padding:"3px 8px",borderRadius:10}}>
-      <span className={syncStatus==="saving"?"pulse":""}>{icon}</span><span style={{fontWeight:700}}>{label}</span>
-    </div>);
+    const map={loading:["⏳","Loading",c.muted],saving:["🔄","Saving",c.purple],synced:["☁️","Synced","#4ade80"],local:["💾","Saved",c.purple],error:["⚠️","Offline",c.danger]};
+    const[icon,label,color]=map[syncStatus]||map.error;
+    const canRetry=syncStatus==="error"||syncStatus==="local";
+    return(
+      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
+        <div style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color,background:`${color}18`,border:`1px solid ${color}44`,padding:"3px 8px",borderRadius:10,cursor:canRetry?"pointer":"default"}}
+          onClick={()=>{if(canRetry){setSyncStatus("saving");scheduleSave();}}}>
+          <span className={syncStatus==="saving"?"pulse":""}>{icon}</span>
+          <span style={{fontWeight:700}}>{label}</span>
+          {canRetry&&<span style={{fontSize:9,marginLeft:2}}>↻ tap to retry</span>}
+        </div>
+        {syncError&&syncStatus==="error"&&(
+          <div style={{fontSize:8,color:c.danger,maxWidth:180,textAlign:"right",lineHeight:1.3,background:`${c.danger}11`,padding:"2px 6px",borderRadius:6,border:`1px solid ${c.danger}33`}}>{syncError}</div>
+        )}
+      </div>
+    );
   }
 
-  if(syncStatus==="loading"){
+  if(syncStatus==="loading"&&!hasLocalData.current){
     return(<><style>{css}</style>
       <div style={{...s.root,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh"}}>
         <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:34,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginBottom:16}}>75 Hard ✨</div>
@@ -1432,4 +1449,4 @@ export default function App() {
       </div>
     </>
   );
-}    
+}
