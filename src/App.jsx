@@ -1145,8 +1145,10 @@ export default function App() {
       if(local){applyData(JSON.parse(local));setSyncStatus("synced");hasLocalData.current=true;}
     }catch(e){}
     // Then fetch from Supabase with retry (handles slow wake-up on free tier)
-    async function loadFromSupabase(retries=3){
-      for(let i=0;i<retries;i++){
+    // Delays: 5s, 10s, 15s, 20s — gives Supabase free tier time to wake up (can take 15-30s)
+    const retryDelays=[5000,10000,15000,20000];
+    async function loadFromSupabase(){
+      for(let i=0;i<=retryDelays.length;i++){
         try{
           const{data,error}=await supabase.from("tracker_data").select("*").eq("id","main").single();
           // PGRST116 = no rows found — fresh start, not a real error
@@ -1163,7 +1165,7 @@ export default function App() {
           const msg=err?.code?`[${err.code}] ${err?.message||err}`:(err?.message||String(err));
           console.error(`Load attempt ${i+1} failed:`,msg);
           setSyncError(msg);
-          if(i<retries-1)await new Promise(r=>setTimeout(r,2000*(i+1)));
+          if(i<retryDelays.length)await new Promise(r=>setTimeout(r,retryDelays[i]));
         }
       }
       // All retries failed
@@ -1240,7 +1242,7 @@ export default function App() {
           return;
         }catch(err){
           console.error(`Save attempt ${attempt+1} failed:`,err?.message||err);
-          if(attempt<2)await new Promise(r=>setTimeout(r,1500*(attempt+1)));
+          if(attempt<2)await new Promise(r=>setTimeout(r,5000*(attempt+1)));
         }
       }
       setSyncStatus(hasLocalData.current?"local":"error");
@@ -1358,12 +1360,12 @@ export default function App() {
     return(
       <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
         <div style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color,background:`${color}18`,border:`1px solid ${color}44`,padding:"3px 8px",borderRadius:10,cursor:canRetry?"pointer":"default"}}
-          onClick={()=>{if(canRetry){setSyncStatus("saving");scheduleSave();}}}>
+          onClick={()=>{if(canRetry)window.location.reload();}}>
           <span className={syncStatus==="saving"?"pulse":""}>{icon}</span>
           <span style={{fontWeight:700}}>{label}</span>
           {canRetry&&<span style={{fontSize:9,marginLeft:2}}>↻ tap to retry</span>}
         </div>
-        {syncError&&syncStatus==="error"&&(
+        {syncError&&(syncStatus==="error"||syncStatus==="local")&&(
           <div style={{fontSize:8,color:c.danger,maxWidth:180,textAlign:"right",lineHeight:1.3,background:`${c.danger}11`,padding:"2px 6px",borderRadius:6,border:`1px solid ${c.danger}33`}}>{syncError}</div>
         )}
       </div>
