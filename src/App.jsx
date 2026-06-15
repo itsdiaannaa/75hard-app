@@ -1139,40 +1139,64 @@ export default function App() {
       if(data.photo_questions&&data.photo_questions.length)setPhotoQuestions(data.photo_questions);
       if(data.daily_photos)setDailyPhotos(data.daily_photos);
     }
-    // Load from localStorage immediately so app works instantly on mobile
+
+    // ── STEP 1: Load from localStorage immediately ──
+    // App is fully ready after this. Supabase is bonus cloud sync only.
     try{
       const local=localStorage.getItem(LOCAL_KEY);
-      if(local){applyData(JSON.parse(local));setSyncStatus("synced");hasLocalData.current=true;}
+      if(local){
+        applyData(JSON.parse(local));
+        hasLocalData.current=true;
+        setSyncStatus("local"); // "Saved" — data is safe locally
+      }
     }catch(e){}
-    // Then fetch from Supabase with retry (handles slow wake-up on free tier)
-    // Delays: 5s, 10s, 15s, 20s — gives Supabase free tier time to wake up (can take 15-30s)
-    const retryDelays=[5000,10000,15000,20000];
-    async function loadFromSupabase(){
-      for(let i=0;i<=retryDelays.length;i++){
+
+    // App is ready — don't make user wait for Supabase
+    isLoaded.current=true;
+    if(!hasLocalData.current) setSyncStatus("loading"); // only show spinner if truly nothing
+
+    // ── STEP 2: Try Supabase in background — silently, doesn't affect app usability ──
+    async function syncWithSupabase(){
+      const delays=[3000,8000,15000];
+      for(let i=0;i<=delays.length;i++){
         try{
           const{data,error}=await supabase.from("tracker_data").select("*").eq("id","main").single();
-          // PGRST116 = no rows found — fresh start, not a real error
-          if(error?.code==="PGRST116"){setSyncStatus("synced");isLoaded.current=true;return;}
+          if(error?.code==="PGRST116"){
+            // No row yet — that's fine, first save will create it
+            setSyncStatus("synced");setSyncError("");
+            return;
+          }
           if(error)throw error;
           if(data){
-            applyData(data);
-            try{localStorage.setItem(LOCAL_KEY,JSON.stringify(data));hasLocalData.current=true;}catch(e){}
+            // Only apply Supabase data if it's newer (has more filled habits)
+            // or if we have no local data
+            if(!hasLocalData.current){
+              applyData(data);
+            }
+            try{
+              if(!hasLocalData.current){
+                localStorage.setItem(LOCAL_KEY,JSON.stringify(data));
+                hasLocalData.current=true;
+              }
+            }catch(e){}
           }
           setSyncStatus("synced");setSyncError("");
-          isLoaded.current=true;
           return;
         }catch(err){
           const msg=err?.code?`[${err.code}] ${err?.message||err}`:(err?.message||String(err));
-          console.error(`Load attempt ${i+1} failed:`,msg);
+          console.error(`Supabase sync attempt ${i+1}:`,msg);
           setSyncError(msg);
-          if(i<retryDelays.length)await new Promise(r=>setTimeout(r,retryDelays[i]));
+          if(i<delays.length)await new Promise(r=>setTimeout(r,delays[i]));
         }
       }
-      // All retries failed
-      setSyncStatus(hasLocalData.current?"local":"error");
-      isLoaded.current=true;
+      // Supabase unreachable — that's ok, app works fine with local data
+      if(hasLocalData.current){
+        setSyncStatus("local"); // "Saved" — don't say "Offline", data IS saved
+      }else{
+        setSyncStatus("error");
+      }
     }
-    loadFromSupabase();
+    syncWithSupabase();
   },[]);
 
   useEffect(()=>{
@@ -1354,7 +1378,7 @@ export default function App() {
   };
 
   function SyncBadge(){
-    const map={loading:["⏳","Loading",c.muted],saving:["🔄","Saving",c.purple],synced:["☁️","Synced","#4ade80"],local:["💾","Saved",c.purple],error:["⚠️","Offline",c.danger]};
+    const map={loading:["⏳","Loading",c.muted],saving:["🔄","Saving",c.purple],synced:["☁️","Synced","#4ade80"],local:["💾","Saved locally","#a78bfa"],error:["⚠️","Tap to retry",c.danger]};
     const[icon,label,color]=map[syncStatus]||map.error;
     const canRetry=syncStatus==="error"||syncStatus==="local";
     return(
@@ -1372,7 +1396,7 @@ export default function App() {
     );
   }
 
-  if(syncStatus==="loading"&&!hasLocalData.current){
+  if((syncStatus==="loading")&&!hasLocalData.current&&!isLoaded.current){
     return(<><style>{css}</style>
       <div style={{...s.root,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh"}}>
         <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:34,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginBottom:16}}>75 Hard ✨</div>
