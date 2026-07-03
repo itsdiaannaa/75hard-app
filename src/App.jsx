@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, memo } from "react";
 const LOCAL_KEY = "75hard_v2";
 function loadData(){try{const r=localStorage.getItem(LOCAL_KEY);return r?JSON.parse(r):null;}catch(e){return null;}}
 function fileToBase64(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file);});}
+function compressImage(file,maxW=900,quality=0.72){return new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>{const img=new Image();img.onload=()=>{const scale=Math.min(1,maxW/Math.max(img.width,img.height));const w=Math.round(img.width*scale),h=Math.round(img.height*scale);const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;canvas.getContext("2d").drawImage(img,0,0,w,h);res(canvas.toDataURL("image/jpeg",quality));};img.onerror=rej;img.src=e.target.result;};r.onerror=rej;r.readAsDataURL(file);});}
 function checkBingoRows(card){const rows=[];for(let r=0;r<5;r++){if(card.slice(r*5,(r+1)*5).every(c=>c.done))rows.push(r);}return rows;}
 function getInitialDay(habits){return{habits:habits.reduce((a,h)=>({...a,[h.id]:false}),{}),journal:"",journalCanvas:"",trading:"",mood:"",restDay:false,photos:[]};}
 
@@ -44,6 +45,7 @@ const DEFAULT_STATE={
   progressPhotos:{before:[],after:[],beforeAnswers:{},afterAnswers:{}},
   photoQuestions:["How do you feel right now?","What is your main goal?","Current weight/measurements?","What are you most proud of?","What will you change?"],
   dailyPhotos:{},
+  challengeArchives:[],
 };
 
 // ── COLOR UTILS ──
@@ -171,7 +173,7 @@ const DayPhotos=memo(({day,dailyPhotos,update,c,s})=>{
   const photos=(dailyPhotos||{})[`day_${day}`]||[];
   async function addPhotos(e){
     const files=Array.from(e.target.files);
-    const b64s=await Promise.all(files.map(fileToBase64));
+    const b64s=await Promise.all(files.map(f=>compressImage(f)));
     update({dailyPhotos:{...dailyPhotos,[`day_${day}`]:[...photos,...b64s]}});
   }
   function removePhoto(i){update({dailyPhotos:{...dailyPhotos,[`day_${day}`]:photos.filter((_,j)=>j!==i)}});}
@@ -365,6 +367,16 @@ const DayView=memo(({st,day,currentDay,updateDay,update,getDayPct,setView,c,s,gr
       {pct===100&&!isRest&&(<div style={{marginTop:14,padding:14,background:`${c.pink}18`,border:`1px solid ${c.pink}55`,borderRadius:14,textAlign:"center"}}>
         <div style={{fontSize:26}}>🎉</div>
         <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:16,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginTop:4}}>Day {day} Conquered, Queen!</div>
+      </div>)}
+      {!isRest&&(<div style={{marginTop:16,padding:14,background:c.surface,border:`1px solid ${c.border}`,borderRadius:14}}>
+        <div style={{fontSize:10,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:c.muted,marginBottom:10}}>✍️ Override Progress %</div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <input type="range" min={0} max={100} step={5} value={data.manualPct!=null?data.manualPct:pct}
+            onChange={e=>updateDay(day,{manualPct:Number(e.target.value)})}
+            style={{flex:1,accentColor:c.pink}}/>
+          <span style={{fontFamily:"'Playfair Display',serif",fontSize:20,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",minWidth:42,textAlign:"right"}}>{data.manualPct!=null?data.manualPct:pct}%</span>
+        </div>
+        {data.manualPct!=null&&(<button onClick={()=>updateDay(day,{manualPct:null})} style={{marginTop:8,fontSize:10,color:c.muted,background:"transparent",border:`1px solid ${c.border}`,borderRadius:8,padding:"4px 10px",cursor:"pointer",fontFamily:"'Nunito',sans-serif"}}>↩ Reset to habit score</button>)}
       </div>)}
     </div>)}
     {tab==="journal"&&<JournalCanvas day={day} dayData={data} updateDay={updateDay} c={c} s={s}/>}
@@ -670,7 +682,7 @@ const ProgressPhotosView=memo(({st,update,c,s})=>{
   const answers=phase==="before"?(pp.beforeAnswers||{}):(pp.afterAnswers||{});
   async function addPhotos(e){
     const files=Array.from(e.target.files);
-    const b64s=await Promise.all(files.map(fileToBase64));
+    const b64s=await Promise.all(files.map(f=>compressImage(f)));
     update({progressPhotos:{...pp,[phase]:[...photos,...b64s]}});
   }
   function removePhoto(i){update({progressPhotos:{...pp,[phase]:photos.filter((_,j)=>j!==i)}});}
@@ -728,6 +740,15 @@ const ProgressPhotosView=memo(({st,update,c,s})=>{
 const SettingsView=memo(({st,update,c,s,grad,gradBtn,syncStatus})=>{
   const[localDays,setLocalDays]=useState(st.totalDays);const[localStart,setLocalStart]=useState(st.startDate);
   const[newHabit,setNewHabit]=useState("");
+  const[archiveName,setArchiveName]=useState("");const[showArchive,setShowArchive]=useState(false);const[viewArchive,setViewArchive]=useState(null);
+  function saveAndReset(){
+    const name=archiveName.trim()||`Round ${(st.challengeArchives||[]).length+1}`;
+    const snap={id:Date.now(),name,savedAt:new Date().toISOString(),startDate:st.startDate,totalDays:st.totalDays,dayData:st.dayData,dailyPhotos:st.dailyPhotos,progressPhotos:st.progressPhotos,habits:st.habits,mission:st.mission,goals:st.goals,affirmations:st.affirmations,weeklyIntentions:st.weeklyIntentions};
+    const archives=[...(st.challengeArchives||[]),snap];
+    const fresh={...DEFAULT_STATE,accent:st.accent,secondary:st.secondary,bgColor:st.bgColor,challengeArchives:archives};
+    try{localStorage.setItem(LOCAL_KEY,JSON.stringify(fresh));window.location.reload();}
+    catch(e){alert("Could not save — try exporting a backup first.");}
+  }
   function updateHabitDays(id,days){update({habits:st.habits.map(h=>h.id===id?{...h,daysPerWeek:days}:h)});}
   function exportData(){
     try{const blob=new Blob([localStorage.getItem(LOCAL_KEY)||"{}"],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="75hard-backup.json";a.click();URL.revokeObjectURL(url);}
@@ -777,6 +798,7 @@ const SettingsView=memo(({st,update,c,s,grad,gradBtn,syncStatus})=>{
       <div style={s.bigTitle}>Challenge Setup ⚙️</div>
       <div style={{marginBottom:14}}><div style={{...s.sectionLabel,marginBottom:6}}>Total Days</div><input type="number" style={s.input} value={localDays} min={1} max={365} onChange={e=>setLocalDays(Number(e.target.value))} onBlur={()=>update({totalDays:localDays})}/></div>
       <div><div style={{...s.sectionLabel,marginBottom:6}}>Start Date</div><input type="date" style={s.input} value={localStart} onChange={e=>setLocalStart(e.target.value)} onBlur={()=>update({startDate:localStart})}/></div>
+      {(()=>{const end=new Date(localStart||st.startDate);end.setDate(end.getDate()+(localDays||st.totalDays)-1);return(<div style={{marginTop:12,padding:"10px 14px",background:`${c.pink}12`,border:`1px solid ${c.pink}33`,borderRadius:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,color:c.muted}}>🏁 Challenge End Date</span><span style={{fontSize:13,fontWeight:700,color:c.pink}}>{end.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span></div>);})()}
     </div>
     <div style={s.card()}>
       <div style={s.bigTitle}>💾 Data Backup</div>
@@ -786,6 +808,34 @@ const SettingsView=memo(({st,update,c,s,grad,gradBtn,syncStatus})=>{
         <span style={{fontSize:13,color:c.muted}}>📥 Import Backup</span>
         <input type="file" accept=".json" onChange={importData} style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%"}}/>
       </div>
+    </div>
+    <div style={s.card()}>
+      <div style={s.bigTitle}>🏆 Challenge Archives</div>
+      <div style={{fontSize:12,color:c.muted,marginBottom:12,lineHeight:1.6}}>Finished a round? Save everything to an archive, then start fresh — your old progress is kept safe inside the app.</div>
+      {!showArchive?(<button style={{...s.pinkBtn,width:"100%"}} onClick={()=>setShowArchive(true)}>🎀 Complete & Archive Challenge</button>):(
+        <div style={{padding:14,background:c.surface,border:`1px solid ${c.pink}55`,borderRadius:14}}>
+          <div style={{fontSize:12,color:c.offwhite,marginBottom:10,fontWeight:700}}>Name this round:</div>
+          <input style={{...s.input,marginBottom:12}} placeholder={`Round ${(st.challengeArchives||[]).length+1} 🌸`} value={archiveName} onChange={e=>setArchiveName(e.target.value)}/>
+          <div style={{fontSize:11,color:c.muted,marginBottom:12}}>⚠️ This will save all your current data and reset the app for a new 75 Hard. Your theme colors stay the same.</div>
+          <div style={{display:"flex",gap:8}}>
+            <button style={s.pinkBtn} onClick={saveAndReset}>Save & Start Fresh ✨</button>
+            <button style={s.ghostBtn} onClick={()=>setShowArchive(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {(st.challengeArchives||[]).length>0&&(<div style={{marginTop:14}}>
+        <div style={{...s.sectionLabel,marginBottom:8}}>Past Challenges</div>
+        {(st.challengeArchives||[]).map((a,i)=>(<div key={a.id} style={{padding:"10px 14px",background:c.surface,border:`1px solid ${c.border}`,borderRadius:12,marginBottom:8,cursor:"pointer"}} onClick={()=>setViewArchive(viewArchive?.id===a.id?null:a)}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div><div style={{fontSize:13,fontWeight:700,color:c.offwhite}}>{a.name}</div><div style={{fontSize:10,color:c.muted,marginTop:2}}>{new Date(a.startDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})} · {a.totalDays} days</div></div>
+            <div style={{fontSize:12,color:c.pink,fontWeight:700}}>{Object.values(a.dayData||{}).filter(d=>d.manualPct===100||(!d.manualPct&&Object.values(d.habits||{}).every(Boolean))).length}/{a.totalDays} ✓</div>
+          </div>
+          {viewArchive?.id===a.id&&(<div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${c.border}`}}>
+            <div style={{fontSize:11,color:c.muted,marginBottom:6}}>Habits tracked: {a.habits?.map(h=>h.icon).join(" ")}</div>
+            <button style={{...s.ghostBtn,fontSize:11,padding:"6px 14px",color:c.danger,borderColor:c.danger}} onClick={e=>{e.stopPropagation();if(window.confirm("Delete this archive? 💔")){update({challengeArchives:(st.challengeArchives||[]).filter(x=>x.id!==a.id)});setViewArchive(null);}}}>🗑️ Delete Archive</button>
+          </div>)}
+        </div>))}
+      </div>)}
     </div>
     <div style={s.card()}>
       <div style={s.bigTitle}>Data 🗂️</div>
@@ -844,6 +894,7 @@ export default function App(){
   function getDayPct(day){
     const d=st.dayData[`day_${day}`]||getInitialDay(st.habits);
     if(d.restDay)return -1;
+    if(d.manualPct!=null)return d.manualPct;
     const applicable=st.habits.filter(h=>isHabitApplicable(h,day));
     if(!applicable.length)return 0;
     return Math.round((applicable.filter(h=>d.habits[h.id]).length/applicable.length)*100);
