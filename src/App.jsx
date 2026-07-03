@@ -260,8 +260,8 @@ const VisionBoard=memo(({visionBoard,update,c,s,grad})=>{
 });
 
 // ── OVERVIEW VIEW ──
-const OverviewView=memo(({st,update,updateDay,getDayPct,getHabitStreak,currentDay,streak,completedDays,setView,c,s,grad})=>{
-  const pct=Math.round((completedDays/st.totalDays)*100);
+const OverviewView=memo(({st,update,updateDay,getDayPct,getHabitStreak,currentDay,streak,completedDays,elapsedDays,setView,c,s,grad})=>{
+  const pct=Math.round((elapsedDays/st.totalDays)*100);
   const todayMood=(st.dayData[`day_${currentDay}`]||{}).mood||"";
   const[localMission,setLocalMission]=useState(st.mission);
   const[editingMission,setEditingMission]=useState(false);
@@ -296,7 +296,7 @@ const OverviewView=memo(({st,update,updateDay,getDayPct,getHabitStreak,currentDa
         <span style={{fontFamily:"'Playfair Display',serif",fontSize:22,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{pct}%</span>
       </div>
       <div style={s.progressTrack}><div style={s.progressFill(pct)}/></div>
-      <div style={{fontSize:11,color:c.muted,marginTop:6,textAlign:"right"}}>{completedDays}/{st.totalDays} days 🌸</div>
+      <div style={{fontSize:11,color:c.muted,marginTop:6,textAlign:"right"}}>{elapsedDays}/{st.totalDays} days 🌸</div>
     </div>
     <div style={s.card()}>
       <div style={s.sectionLabel}>Day Map 🗺️</div>
@@ -368,15 +368,11 @@ const DayView=memo(({st,day,currentDay,updateDay,update,getDayPct,setView,c,s,gr
         <div style={{fontSize:26}}>🎉</div>
         <div style={{fontFamily:"'Playfair Display',serif",fontStyle:"italic",fontSize:16,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",marginTop:4}}>Day {day} Conquered, Queen!</div>
       </div>)}
-      {!isRest&&(<div style={{marginTop:16,padding:14,background:c.surface,border:`1px solid ${c.border}`,borderRadius:14}}>
-        <div style={{fontSize:10,fontWeight:700,letterSpacing:2,textTransform:"uppercase",color:c.muted,marginBottom:10}}>✍️ Override Progress %</div>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <input type="range" min={0} max={100} step={5} value={data.manualPct!=null?data.manualPct:pct}
-            onChange={e=>updateDay(day,{manualPct:Number(e.target.value)})}
-            style={{flex:1,accentColor:c.pink}}/>
-          <span style={{fontFamily:"'Playfair Display',serif",fontSize:20,background:grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",minWidth:42,textAlign:"right"}}>{data.manualPct!=null?data.manualPct:pct}%</span>
-        </div>
-        {data.manualPct!=null&&(<button onClick={()=>updateDay(day,{manualPct:null})} style={{marginTop:8,fontSize:10,color:c.muted,background:"transparent",border:`1px solid ${c.border}`,borderRadius:8,padding:"4px 10px",cursor:"pointer",fontFamily:"'Nunito',sans-serif"}}>↩ Reset to habit score</button>)}
+      {!isRest&&pct<100&&(<div style={{marginTop:14}}>
+        {data.manualComplete?(<div style={{padding:12,background:`${c.pink}18`,border:`1px solid ${c.pink}55`,borderRadius:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div><div style={{fontSize:13,fontWeight:700,color:c.pink}}>✅ Day marked complete!</div><div style={{fontSize:10,color:c.muted,marginTop:2}}>Counts as 100% on your progress bar</div></div>
+          <button onClick={()=>updateDay(day,{manualComplete:false})} style={{fontSize:10,color:c.muted,background:"transparent",border:`1px solid ${c.border}`,borderRadius:8,padding:"4px 10px",cursor:"pointer",fontFamily:"'Nunito',sans-serif"}}>Undo</button>
+        </div>):(<button style={{...s.pinkBtn,width:"100%"}} onClick={()=>updateDay(day,{manualComplete:true})}>✅ Complete Day</button>)}
       </div>)}
     </div>)}
     {tab==="journal"&&<JournalCanvas day={day} dayData={data} updateDay={updateDay} c={c} s={s}/>}
@@ -893,8 +889,8 @@ export default function App(){
   }
   function getDayPct(day){
     const d=st.dayData[`day_${day}`]||getInitialDay(st.habits);
-    if(d.restDay)return -1;
-    if(d.manualPct!=null)return d.manualPct;
+    if(d.restDay)return -1; // blue on map
+    if(d.manualComplete)return 100;
     const applicable=st.habits.filter(h=>isHabitApplicable(h,day));
     if(!applicable.length)return 0;
     return Math.round((applicable.filter(h=>d.habits[h.id]).length/applicable.length)*100);
@@ -905,6 +901,7 @@ export default function App(){
 
   const currentDay=getCurrentDay(),streak=getStreak();
   const completedDays=Array.from({length:st.totalDays},(_,i)=>i+1).filter(d=>getDayPct(d)===100).length;
+  const elapsedDays=Math.min(currentDay,st.totalDays);
   const isDayView=view.startsWith("day-"),dayNum=isDayView?parseInt(view.split("-")[1]):null;
 
   function dayDotStyle(day,pct,cur,dn,c,grad){
@@ -990,7 +987,7 @@ export default function App(){
         </div>)}
       </div>
       <div style={s.content}>
-        {view==="overview"&&<OverviewView st={st} update={update} updateDay={updateDay} getDayPct={getDayPct} getHabitStreak={getHabitStreak} currentDay={currentDay} streak={streak} completedDays={completedDays} setView={setView} c={c} s={s} grad={grad}/>}
+        {view==="overview"&&<OverviewView st={st} update={update} updateDay={updateDay} getDayPct={getDayPct} getHabitStreak={getHabitStreak} currentDay={currentDay} streak={streak} completedDays={completedDays} elapsedDays={elapsedDays} setView={setView} c={c} s={s} grad={grad}/>}
         {isDayView&&<DayView key={dayNum} st={st} day={dayNum} currentDay={currentDay} updateDay={updateDay} update={update} getDayPct={getDayPct} setView={setView} c={c} s={s} grad={grad}/>}
         {view==="affirmations"&&<AffirmationsView affirmations={st.affirmations} update={update} c={c} s={s}/>}
         {view==="intentions"&&<WeeklyIntentionView st={st} update={update} currentDay={currentDay} c={c} s={s}/>}
